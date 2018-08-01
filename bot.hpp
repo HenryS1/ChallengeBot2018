@@ -3,9 +3,12 @@
 
 #define PLAYER_LENGTH sizeof(player)
 
+#include <chrono>
 #include <stdint.h>
 #include <random>
 #include <atomic>
+#include <thread>
+#include <iostream>
 
 namespace bot {
 
@@ -36,7 +39,7 @@ namespace bot {
 
     typedef struct board board_t;
 
-    struct search_boards {
+    struct game_state {
         board_t initial;
         board_t search1;
         board_t search2;
@@ -46,7 +49,7 @@ namespace bot {
         std::atomic<bool> stop_search;
     };
 
-    typedef search_boards search_boards_t;
+    typedef game_state game_state_t;
 
     const uint64_t max_u_int_64 = 18446744073709551615ULL;
 
@@ -356,7 +359,66 @@ namespace bot {
         }
     }
 
-//    inline void find_best_move(search_boards_t& sear
+    void blah(int i) {
+        
+    }
+
+    inline void find_best_move(game_state_t& game_state, uint16_t current_turn) {
+        std::thread search1(mc_search, game_state.initial, 
+                            game_state.search1,
+                            game_state.move_scores,
+                            game_state.stop_search,
+                            current_turn);
+        std::thread search2(mc_search, game_state.initial, 
+                            game_state.search2,
+                            game_state.move_scores,
+                            game_state.stop_search,
+                            current_turn);
+        std::thread search3(mc_search, game_state.initial, 
+                            game_state.search3,
+                            game_state.move_scores,
+                            game_state.stop_search,
+                            current_turn);
+        std::thread search4(mc_search, game_state.initial, 
+                            game_state.search4,
+                            game_state.move_scores,
+                            game_state.stop_search,
+                            current_turn);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1950));
+        game_state.stop_search.store(true);
+        
+        std::atomic<uint32_t>* move_scores = game_state.move_scores;
+
+        uint64_t best_wins = 0;
+        uint64_t best_losses = 0;
+        uint8_t best_position = 0;
+        uint8_t best_building_num = 0;
+
+        for (uint16_t i = 0; i < 256; i++) {
+            if (move_scores[i] > 0) {
+                uint16_t index = i << 1;
+                uint64_t wins = move_scores[index];
+                uint64_t losses = move_scores[index + 1];
+                if (wins * best_losses > best_wins * losses) {
+                    best_wins = wins;
+                    best_losses = losses;
+                    best_building_num = index >> 7;
+                    best_position = (index & 127) >> 1;
+                }
+            }
+        }
+        uint8_t row = best_position >> 3;
+        uint8_t col = best_position & 7;
+        
+        std::cout << "Best position: " << best_position << std::endl;
+        std::cout << "Best building num: " << best_building_num << std::endl;
+
+        search1.join();
+        search2.join();
+        search3.join();
+        search4.join();
+    }
 
 }
 
