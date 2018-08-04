@@ -53,7 +53,6 @@ namespace bot {
         if (col > 7) {
             col = 15 - col;
         }
-        std::cout << "ENTITY: ROW " << (int)row << " COL " << (int)col << std::endl;
         return (building_positions_t)1 << ((row << 3) + (col & 7));
     }
 
@@ -93,13 +92,9 @@ namespace bot {
                                  uint16_t current_turn) {
         for (auto building = buildings.begin(); building != buildings.end(); building++) {
             json j = *building;
-            std::cout << "JSON " << j << std::endl;
             uint32_t row = j.at("y").get<int>();
             uint32_t col = j.at("x").get<int>();
-            std::cout << "FROM JSON " << row << " " << col << std::endl;
             building_positions_t new_building = entity_from_coordinate(row, col);
-            std::cout << "New building " << new_building << std::endl;
-            std::cout << "ROW " << (int)row << " COL " << (int)col << std::endl;
             uint64_t* place_to_put_building = 
                 find_where_to_put_building(current_turn, player, j);
             int16_t construction_time_left = j.at("constructionTimeLeft").get<int16_t>();
@@ -199,20 +194,11 @@ namespace bot {
     const uint64_t first_zeros_mask = ~enemy_hits_mask;
 
     inline void move_current_missiles(uint8_t offset, player_t& player) {
-        std::cout << "MISSILES OFFSET " << (int)offset << std::endl;
-        std::cout << "ENEMY HALF MISSILES BEFORE " << 
-            player.enemy_half_missiles[offset] << std::endl;
-        std::cout << "PLAYER HALF MISSILES " << 
-            player.player_missiles[offset] << std::endl;
-        std::cout << "LEADING COLUMN MASK " << leading_column_mask << std::endl;
-        std::cout << "FIRST ZEROS MASK " << first_zeros_mask << std::endl;
         player.enemy_half_missiles[offset] = 
             (player.player_missiles[offset] & leading_column_mask) | 
             ((player.enemy_half_missiles[offset] & first_zeros_mask) >> 1);
         player.player_missiles[offset] = first_zeros_mask & 
             (player.player_missiles[offset] << 1);
-        std::cout << "ENEMY HALF MISSILES AFTER " << 
-            player.enemy_half_missiles[offset] << std::endl;
     }
 
     inline void move_missiles(player_t& player) {
@@ -271,10 +257,7 @@ namespace bot {
                                                  uint8_t offset) {
         uint8_t collision_count = count_set_bits(
              enemy_hits_mask & player.enemy_half_missiles[offset]);
-        std::cout << "ENEMY HALF MISSILES " << player.enemy_half_missiles[offset] << std::endl;
-        std::cout << "HARMING ENEMY " << enemy.health << " " << (int)collision_count << std::endl;
         enemy.health = std::max(0, (int16_t) enemy.health - (5 * collision_count));
-        std::cout << "HEALTH AFTER HARM " << enemy.health << std::endl;
     }
 
     inline void harm_enemy(player_t& player, player_t& enemy) {
@@ -345,15 +328,12 @@ namespace bot {
     }
 
     inline void queue_energy_building(building_positions_t new_building, player_t& player) {
-        std::cout << "queueing energy building " << new_building << std::endl;
         player.energy_building_queue |= new_building;
     }
 
     inline void queue_defence_building(building_positions_t new_building, 
                                        player_t& player,
                                        uint16_t current_turn) {
-        uint8_t index = current_turn % 3;
-        std::cout << "QUEUE DEFENCE BUILDING INDEX " << (int)index << std::endl;
         player.defence_building_queue[current_turn % 3] |= new_building;
     }
 
@@ -362,20 +342,17 @@ namespace bot {
     }
 
     inline void build_attack_building(player_t& player, uint16_t current_turn) {
-        std::cout << "Queued attack building " << player.attack_building_queue << std::endl;
         player.attack_buildings[mod4(current_turn)] |= player.attack_building_queue;
         player.attack_building_queue = 0;
     }
 
     inline void build_energy_building(player_t& player) {
-        std::cout << "ENERGY BUILDING QUEUE " << player.energy_building_queue << std::endl;
         player.energy_buildings |= player.energy_building_queue;
         player.energy_building_queue = 0;
     }
 
     inline void build_defence_building(player_t& player, uint8_t current_turn) {
         uint8_t index = current_turn % 3;
-        std::cout << "BUILD DEFENCE BUILDING INDEX " << (int)index << std::endl;
         building_positions_t new_building = player.defence_building_queue[index];
         for (uint8_t i = 0; i < 4; i++) {
             player.defence_buildings[i] |= new_building;
@@ -385,8 +362,6 @@ namespace bot {
 
     inline void fire_missiles(player_t& player, uint16_t current_turn) {
         uint8_t offset = mod4(current_turn);
-        std::cout << "FIRE MISSILES OFFSET " << (int)offset << std::endl;
-        std::cout << "NEW MISSILES " << player.attack_buildings[offset] << std::endl;
         player.player_missiles[offset] |= player.attack_buildings[offset];
     }
 
@@ -394,16 +369,13 @@ namespace bot {
                                uint8_t building_num,
                                player_t& player, 
                                uint8_t current_turn) {
-        std::cout << "Position " << (int)position << std::endl;
         building_positions_t new_building = (building_positions_t)1 << position;
-        std::cout << "queueing building " << new_building << std::endl;
         switch (building_num) {
         case 1:
             queue_defence_building(new_building, player, current_turn);
             player.energy -= 30;
             break;
         case 2:
-            std::cout << "QUEUEING ATTACK BUILDING " << new_building << std::endl;
             queue_attack_building(new_building, player);
             player.energy -= 30;
             break;
@@ -494,7 +466,6 @@ namespace bot {
                 a_move = select_move(mt, a);
                 b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
-
             }
             return a_move;
         } else {
@@ -512,6 +483,7 @@ namespace bot {
         player_t& b = search_board.b;
         copy_board(initial, search_board);
         while (!stop_search.compare_exchange_weak(done, done)) {
+            done = true;
             uint16_t first_move = first_move = simulate(mt, a, b, current_turn);
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
             if (b.health > 0) {
