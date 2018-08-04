@@ -66,6 +66,9 @@ namespace tick_test {
         std::cout << player_check.health << " " << player.health << std::endl;
         for (uint8_t i = 0; i < 4; i++) {
             assert(player_check.attack_buildings[i] == player.attack_buildings[i]);
+            std::cout << "defence_buildings[" << (int)i << "] "
+                      << player_check.defence_buildings[i] << " "
+                << player.defence_buildings[i] << std::endl;
             assert(player_check.defence_buildings[i] == player.defence_buildings[i]);
             assert(player_check.defence_building_queue[i] == player.defence_building_queue[i]);
         }
@@ -81,7 +84,7 @@ namespace tick_test {
             player_missiles_result ^= player.player_missiles[i];
             enemy_half_missiles_result ^= player_check.enemy_half_missiles[i];
             enemy_half_missiles_result ^= player.enemy_half_missiles[i];
-            std::cout << "ENEMY HALF MISSILES " << player_check.enemy_half_missiles[i] 
+            std::cout << "ENEMY HALF MISSILES CHECK " << player_check.enemy_half_missiles[i] 
                 << " " << player.enemy_half_missiles[i] << std::endl;
         }    
         assert(player_missiles_result == 0);
@@ -115,7 +118,9 @@ namespace tick_test {
                 std::cout << "current turn " << current_turn << std::endl;
                 check_player_entries_are_equal(round_dir, game_state.initial.a, a);
                 check_player_entries_are_equal(round_dir, game_state.initial.b, b);
+                std::cout << "check missiles a" << std::endl;
                 check_player_missiles_are_equal(round_dir, game_state.initial.a, a);
+                std::cout << "check missiles b" << std::endl;
                 check_player_missiles_are_equal(round_dir, game_state.initial.b, b);
                 bot::advance_state(a_command, b_command, a, b, current_turn);
             }
