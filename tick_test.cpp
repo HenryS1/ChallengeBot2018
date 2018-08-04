@@ -15,7 +15,11 @@ namespace tick_test {
         std::ifstream command_file(filepath, std::ios::in);
         if (command_file.is_open()) {
             std::string line;
-            command_file >> line;
+            getline(command_file, line);
+            if (line == "No Command") {
+                return 0;
+            }
+            std::cout << "Line " << line << std::endl;
             std::vector<std::string> strs;
             boost::split(strs, line, boost::is_any_of(","));
             std::vector<int> result(strs.size());
@@ -54,8 +58,12 @@ namespace tick_test {
                                         bot::player_t& player) {
         assert(player_check.energy_buildings == player.energy_buildings);
         assert(player_check.attack_building_queue == player.attack_building_queue);
+        std::cout << player_check.energy_building_queue << " " << 
+            player.energy_building_queue << std::endl;
         assert(player_check.energy_building_queue == player.energy_building_queue);
+        std::cout << "PLAYER HEALTH " << player_check.health << " " << player.health << std::endl;
         assert(player_check.health == player.health);
+        std::cout << player_check.health << " " << player.health << std::endl;
         for (uint8_t i = 0; i < 4; i++) {
             assert(player_check.attack_buildings[i] == player.attack_buildings[i]);
             assert(player_check.defence_buildings[i] == player.defence_buildings[i]);
@@ -113,6 +121,7 @@ namespace tick_test {
     }
 
     void process_game(const path& game_dir) {
+        std::cout << "directory " << game_dir << std::endl;
         std::vector<std::string> round_dirs = list_directory(game_dir);
         if (round_dirs.size() > 0) {
             bot::board_t board;
@@ -137,8 +146,8 @@ int main(int argc, char** argv) {
     // }
     // std::string filename("command.txt");
     // std::cout << "MOVE " << tick_test::read_command(filename) << std::endl;
-    if (argc > 0) {
-        std::string game_dir(argv[0]);
+    if (argc == 2) {
+        std::string game_dir(argv[1]);
         tick_test::process_game(game_dir);
     } else {
         std::cout << "Provide game directory" << std::endl;
