@@ -81,7 +81,9 @@ namespace tick_test {
             player_missiles_result ^= player.player_missiles[i];
             enemy_half_missiles_result ^= player_check.enemy_half_missiles[i];
             enemy_half_missiles_result ^= player.enemy_half_missiles[i];
-        }
+            std::cout << "ENEMY HALF MISSILES " << player_check.enemy_half_missiles[i] 
+                << " " << player.enemy_half_missiles[i] << std::endl;
+        }    
         assert(player_missiles_result == 0);
         assert(enemy_half_missiles_result == 0);
     }

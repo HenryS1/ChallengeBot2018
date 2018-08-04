@@ -54,14 +54,14 @@ namespace bot {
             col = 15 - col;
         }
         std::cout << "ENTITY: ROW " << (int)row << " COL " << (int)col << std::endl;
-        return 1 << ((row << 3) + (col & 7));
+        return (building_positions_t)1 << ((row << 3) + (col & 7));
     }
 
     uint64_t* find_where_to_put_building(uint16_t current_turn,
                                          player_t& player,
                                          const json& building) {
         std::string building_type = building.at("buildingType").get<std::string>();
-        int8_t construction_time_left = building.at("constructionTimeLeft").get<int8_t>();
+        int16_t construction_time_left = building.at("constructionTimeLeft").get<int16_t>();
         if (building_type == "TESLA") {
             return &(player.attack_buildings[current_turn & 3]);
         } else if (building_type == "ATTACK") {
@@ -102,7 +102,7 @@ namespace bot {
             std::cout << "ROW " << (int)row << " COL " << (int)col << std::endl;
             uint64_t* place_to_put_building = 
                 find_where_to_put_building(current_turn, player, j);
-            int8_t construction_time_left = j.at("constructionTimeLeft").get<int8_t>();
+            int16_t construction_time_left = j.at("constructionTimeLeft").get<int16_t>();
             std::string building_type = j.at("buildingType").get<std::string>();
             if (construction_time_left < 0 && building_type == "DEFENSE") {
                 uint8_t health = j.at("health").get<uint8_t>();
@@ -202,7 +202,6 @@ namespace bot {
     const uint64_t first_zeros_mask = ~enemy_hits_mask;
 
     inline void move_current_missiles(uint8_t offset, player_t& player) {
-        std::cout << "MISSILES OFFSET " << (int)offset << std::endl;
         player.player_missiles[offset] = first_zeros_mask & 
             (player.player_missiles[offset] << 1);
         player.enemy_half_missiles[offset] = 
@@ -354,6 +353,7 @@ namespace bot {
     }
 
     inline void build_attack_building(player_t& player, uint16_t current_turn) {
+        std::cout << "Queued attack building " << player.attack_building_queue << std::endl;
         player.attack_buildings[mod4(current_turn)] |= player.attack_building_queue;
         player.attack_building_queue = 0;
     }
@@ -373,7 +373,10 @@ namespace bot {
     }
 
     inline void fire_missiles(player_t& player, uint16_t current_turn) {
-        player.player_missiles[mod4(current_turn)] |= player.attack_buildings[mod4(current_turn)];
+        uint8_t offset = mod4(current_turn);
+        std::cout << "FIRE MISSILES OFFSET " << (int)offset << std::endl;
+        std::cout << "NEW MISSILES " << player.attack_buildings[offset] << std::endl;
+        player.player_missiles[offset] |= player.attack_buildings[offset];
     }
 
     inline void queue_building(uint8_t position, 
@@ -381,13 +384,15 @@ namespace bot {
                                player_t& player, 
                                uint8_t current_turn) {
         std::cout << "Position " << (int)position << std::endl;
-        building_positions_t new_building = 1 << position;
+        building_positions_t new_building = (building_positions_t)1 << position;
+        std::cout << "queueing building" << new_building << std::endl;
         switch (building_num) {
         case 1:
             queue_defence_building(new_building, player, current_turn);
             player.energy -= 30;
             break;
         case 2:
+            std::cout << "QUEUEING ATTACK BUILDING " << new_building << std::endl;
             queue_attack_building(new_building, player);
             player.energy -= 30;
             break;
