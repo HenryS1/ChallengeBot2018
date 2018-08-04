@@ -3,14 +3,23 @@
 
 #define PLAYER_LENGTH sizeof(player)
 
-#include <chrono>
+#include <thread>
+#include <algorithm>
 #include <stdint.h>
 #include <random>
 #include <atomic>
-#include <thread>
+#include <chrono>
 #include <iostream>
+#include <fstream>
+#include "json.hpp"
 
 namespace bot {
+
+    enum building_type_t : uint8_t {
+        defence = 0,
+        attack = 1,
+        energy = 2
+    };
 
     typedef uint64_t missile_positions_t;
     typedef uint64_t building_positions_t;
@@ -31,6 +40,130 @@ namespace bot {
     };
 
     typedef struct player player_t;
+
+    using nlohmann::json;
+
+    void read_player_energy_and_health(const json& player_state, player_t& a, player_t& b) {
+        player_t& player = player_state.at("playerType").get<std::string>() == "A" ? a : b;
+        player.energy = player_state.at("energy").get<energy_t>();
+        player.health = player_state.at("health").get<health_t>();
+    }
+
+    inline building_positions_t entity_from_coordinate(uint8_t row, uint8_t col) {
+        if (col > 7) {
+            col -= 15;
+        }
+        return 1 << ((row << 3) + (col & 7));
+    }
+
+    uint64_t* find_where_to_put_building(uint16_t current_turn,
+                                         player_t& player,
+                                         const json& building) {
+        std::string building_type = building.at("buildingType").get<std::string>();
+        int8_t construction_time_left = building.at("constructionTimeLeft").get<int8_t>();
+        if (building_type == "TESLA") {
+            return &(player.attack_buildings[current_turn & 3]);
+        } else if (building_type == "ATTACK") {
+            if (construction_time_left > -1) {
+                return &(player.attack_building_queue);
+            } else {
+                uint8_t weapon_cooldown_time = building.at("weaponCooldownTime").get<uint8_t>();
+                return &(player.attack_buildings[(current_turn + (weapon_cooldown_time & 3)) & 3]);
+            }
+        } else if (building_type == "DEFENSE") {
+            if (construction_time_left > -1) {
+                return &(player.defence_building_queue[((construction_time_left - 3) 
+                                                        + current_turn) % 3]);
+            } else {
+                return player.defence_buildings;
+            }
+        } else {
+            if (construction_time_left > -1) {
+                return &(player.energy_building_queue);
+            } else {
+                return &(player.energy_buildings);
+            }
+        }
+    }
+
+    void add_to_player_buildings(std::vector<json>& buildings, 
+                                 player_t& player, 
+                                 uint16_t current_turn) {
+        for (auto building = buildings.begin(); building != buildings.end(); building++) {
+            json j = *building;
+            uint8_t row = j.at("y").get<uint8_t>();
+            uint8_t col = j.at("x").get<uint8_t>();
+            building_positions_t new_building = entity_from_coordinate(row, col);
+            uint64_t* place_to_put_building = 
+                find_where_to_put_building(current_turn, player, j);
+            int8_t construction_time_left = j.at("constructionTimeLeft").get<int8_t>();
+            std::string building_type = j.at("buildingType").get<std::string>();
+            if (construction_time_left < 0 && building_type == "DEFENSE") {
+                uint8_t health = j.at("health").get<uint8_t>();
+                for (uint8_t i = (4 - (health / 5)); i < 4; i++) {
+                    place_to_put_building[i] |= new_building;
+                }
+            } else {
+                (*place_to_put_building) |= new_building;
+            }
+        }
+    }
+    
+    uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
+        if (player_type == "A") {
+            return col > 7 ? player.enemy_half_missiles : player.player_missiles;
+        } else {
+            return col > 7 ? player.player_missiles : player.enemy_half_missiles;
+        }
+    }
+
+    void add_to_player_missiles(std::vector<json>& missiles,
+                                player_t& a,
+                                player_t& b) {
+        uint8_t missiles_offset = 0;
+        for (auto missile = missiles.begin(); missile != missiles.end(); 
+             missile++, missiles_offset++) {
+            json j = *missile;
+            uint8_t row = j.at("y").get<uint8_t>();
+            uint8_t col = j.at("x").get<uint8_t>();
+            missile_positions_t new_missile = entity_from_coordinate(row, col);
+            std::string player_type = j.at("playerType").get<std::string>();
+            player_t& player = player_type == "A" ? a : b;
+            uint64_t* place_to_put_missile = get_missile_index(col, player_type, player);
+            place_to_put_missile[missiles_offset] |= new_missile;
+        }
+    }
+
+    void read_buildings_and_missiles_from_map(const json& game_map,
+                                              player_t& a,
+                                              player_t& b,
+                                              uint16_t current_turn) {
+        std::vector<json> rows = game_map;
+        for (auto row = rows.begin(); row != rows.end(); row++) {
+            for (auto c = row->begin(); c != row->end(); c++) {
+                json j = *c;
+                player_t& player = j.at("cellOwner").get<std::string>() == "A" ? a : b;
+                std::vector<json> buildings = j.at("buildings").get<std::vector<json>>();
+                add_to_player_buildings(buildings, 
+                                        player, 
+                                        current_turn);
+                std::vector<json> missiles = j.at("missiles").get<std::vector<json>>();
+                add_to_player_missiles(missiles, a, b);
+            }
+        }
+    }
+
+    uint16_t read_from_state(player_t& a, player_t& b, const json& state) {
+        json game_details = state.at("gameDetails");
+        uint16_t current_turn = game_details.at("round").get<uint16_t>();
+        json game_map = state.at("gameMap");
+        read_buildings_and_missiles_from_map(game_map, a, b, current_turn);
+        std::vector<json> players = state.at("players");
+        for (auto p = players.begin(); p != players.end(); p++) {
+            read_player_energy_and_health(*p, a, b);
+        }
+        return current_turn;
+    }
 
     struct board {
         player_t a;
@@ -80,12 +213,12 @@ namespace bot {
         building_positions_t intersection = enemy_missiles & player.energy_buildings;
         player.energy_buildings ^= intersection;
         enemy_missiles ^= intersection;
-        for (uint8_t i = 0; i < sizeof(player.attack_buildings); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             intersection = enemy_missiles & player.attack_buildings[i];
             player.attack_buildings[i] ^= intersection;
             enemy_missiles ^= intersection;
         }
-        for (uint8_t i = 0; i < sizeof(player.defence_buildings); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             intersection = player.defence_buildings[i] & enemy_missiles;
             player.defence_buildings[i] ^= intersection;
             enemy_missiles ^= intersection;
@@ -109,7 +242,7 @@ namespace bot {
     }
 
     inline uint64_t max_zero(uint64_t a) { 
-        return a & (~a >> 63);
+        return a & ((~a) >> 63);
     }
 
     inline uint8_t count_zero_bits(uint64_t n) {
@@ -121,7 +254,7 @@ namespace bot {
                                                  uint8_t offset) {
         uint8_t collision_count = count_set_bits(
              enemy_hits_mask & player.enemy_half_missiles[offset]);
-        enemy.health = max_zero(enemy.health - 5 * collision_count);
+        enemy.health = std::max(0, (int16_t) enemy.health - (5 * collision_count));
     }
 
     inline void harm_enemy(player_t& player, player_t& enemy) {
@@ -175,13 +308,13 @@ namespace bot {
         building_positions_t occupied = player.energy_buildings 
             | player.energy_building_queue
             | player.attack_building_queue;
-        for (uint8_t i = 0; i < sizeof(player.attack_buildings); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             occupied |= player.attack_buildings[i];
         }
-        for (uint8_t i = 0; i < sizeof(player.defence_buildings); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             occupied |= player.defence_buildings[i];
         }
-        for (uint8_t i = 0; i < sizeof(player.defence_building_queue); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             occupied |= player.defence_building_queue[i];
         }
         return occupied;
@@ -218,7 +351,7 @@ namespace bot {
     inline void build_defence_building(player_t& player, uint8_t current_turn) {
         uint8_t index = current_turn % 3;
         building_positions_t new_building = player.defence_building_queue[index];
-        for (uint8_t i = 0; i < sizeof(player.defence_buildings); i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             player.defence_buildings[i] |= new_building;
         }
         player.defence_building_queue[index] = 0;
@@ -256,22 +389,22 @@ namespace bot {
             return 0;
         } else if (player.energy > 19 && player.energy < 30) {
             position = select_position(mt, occupied);
-            return 3 + (position << 2);
+            return 3 + (position << 3);
         } else if (player.energy > 29) {
             position = select_position(mt, occupied);
             uint8_t building_num = (mt() % 3) + 1;
-            return building_num | (position << 2);
+            return building_num | (position << 3);
         } else {
             return 0;
         }
     }
 
     inline uint8_t get_position(uint16_t move) {
-        return move >> 2;
+        return move >> 3;
     }
 
     inline uint8_t get_building_num(uint16_t move) {
-        return move & 3;
+        return move & 7;
     }
 
     inline void make_move(uint16_t move, player_t& player, uint16_t current_turn) {
@@ -329,6 +462,7 @@ namespace bot {
                 a_move = select_move(mt, a);
                 b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
+
             }
             return a_move;
         } else {
@@ -341,15 +475,13 @@ namespace bot {
                           std::atomic<bool>& stop_search,
                           uint16_t current_turn) {
         std::mt19937 mt;
-        uint16_t first_move = 0;
-        uint16_t index = 0;
         bool done = true;
         player_t& a = search_board.a;
         player_t& b = search_board.b;
         copy_board(initial, search_board);
         while (!stop_search.compare_exchange_weak(done, done)) {
-            first_move = simulate(mt, a, b, current_turn);
-            index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
+            uint16_t first_move = first_move = simulate(mt, a, b, current_turn);
+            uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
             if (b.health > 0) {
                 move_scores[index + 1]++;
             } else {
@@ -359,31 +491,44 @@ namespace bot {
         }
     }
 
-    void blah(int i) {
-        
+    void write_command_to_file(uint8_t row, 
+                               uint8_t col,
+                               uint8_t building_num) {
+        std::ofstream command_output("command.txt", std::ios::out);
+        if (command_output.is_open()) {
+            if (building_num > 0) {
+                command_output << col << "," << row << "," << building_num << std::endl;
+            } else {
+                command_output << std::endl;
+            }
+            command_output.close();
+        }
     }
 
     inline void find_best_move(game_state_t& game_state, uint16_t current_turn) {
-        std::thread search1(mc_search, game_state.initial, 
-                            game_state.search1,
+        
+        game_state.stop_search.store(false);
+
+        std::thread search1(mc_search, std::ref(game_state.initial), 
+                            std::ref(game_state.search1),
                             game_state.move_scores,
-                            game_state.stop_search,
+                            std::ref(game_state.stop_search),
                             current_turn);
-        std::thread search2(mc_search, game_state.initial, 
-                            game_state.search2,
-                            game_state.move_scores,
-                            game_state.stop_search,
-                            current_turn);
-        std::thread search3(mc_search, game_state.initial, 
-                            game_state.search3,
-                            game_state.move_scores,
-                            game_state.stop_search,
-                            current_turn);
-        std::thread search4(mc_search, game_state.initial, 
-                            game_state.search4,
-                            game_state.move_scores,
-                            game_state.stop_search,
-                            current_turn);
+        // std::thread search2(mc_search, std::ref(game_state.initial), 
+        //                     std::ref(game_state.search2),
+        //                     game_state.move_scores,
+        //                     std::ref(game_state.stop_search),
+        //                     current_turn);
+        // std::thread search3(mc_search, std::ref(game_state.initial), 
+        //                     std::ref(game_state.search3),
+        //                     game_state.move_scores,
+        //                     std::ref(game_state.stop_search),
+        //                     current_turn);
+        // std::thread search4(mc_search, std::ref(game_state.initial), 
+        //                     std::ref(game_state.search4),
+        //                     game_state.move_scores,
+        //                     std::ref(game_state.stop_search),
+        //                     current_turn);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1950));
         game_state.stop_search.store(true);
@@ -411,14 +556,38 @@ namespace bot {
         uint8_t row = best_position >> 3;
         uint8_t col = best_position & 7;
         
-        std::cout << "Best position: " << best_position << std::endl;
-        std::cout << "Best building num: " << best_building_num << std::endl;
+        write_command_to_file(row, col, best_building_num);
 
         search1.join();
-        search2.join();
-        search3.join();
-        search4.join();
+        // search2.join();
+        // search3.join();
+        // search4.join();
     }
+
+    uint16_t read_state(game_state_t& game_state, std::string& state_path) {
+        std::memset(&(game_state.initial), 0, sizeof(board));
+        std::memset(&(game_state.search1), 0, sizeof(board));
+        std::memset(&(game_state.search2), 0, sizeof(board));
+        std::memset(&(game_state.search3), 0, sizeof(board));
+        std::memset(&(game_state.search4), 0, sizeof(board));
+        std::ifstream state_reader(state_path, std::ios::in);
+        if (state_reader.is_open()) {
+            json game_state_json;
+            state_reader >> game_state_json;
+            return read_from_state(game_state.initial.a, game_state.initial.b, game_state_json);
+        }
+        return -1;
+    }
+    
+    void move_and_write_to_file() {
+        game_state_t game_state;
+        std::string state_path("state.json");
+        uint16_t current_turn = read_state(game_state, state_path);
+        if (current_turn != (uint16_t) -1) {
+            find_best_move(game_state, current_turn);
+        }
+    }
+
 
 }
 
