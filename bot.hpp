@@ -15,6 +15,8 @@
 
 namespace bot {
 
+    std::atomic<uint64_t> sim_count(0);
+
     enum building_type_t : uint8_t {
         defence = 0,
         attack = 1,
@@ -485,6 +487,7 @@ namespace bot {
         while (!stop_search.compare_exchange_weak(done, done)) {
             done = true;
             uint16_t first_move = first_move = simulate(mt, a, b, current_turn);
+            sim_count++;
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
             if (b.health > 0) {
                 move_scores[index + 1]++;
@@ -499,11 +502,14 @@ namespace bot {
                                uint8_t col,
                                uint8_t building_num) {
         std::ofstream command_output("command.txt", std::ios::out);
+        std::cout << "sim count " << sim_count << std::endl;
         if (command_output.is_open()) {
             if (building_num > 0) {
-                command_output << col << "," << row << "," << building_num << std::endl;
+                command_output << (int)col << "," << (int)row << "," << 
+                    (int)(building_num - 1) << 
+                    std::endl << std::flush;
             } else {
-                command_output << std::endl;
+                command_output << std::endl << std::flush;
             }
             command_output.close();
         }
@@ -518,21 +524,21 @@ namespace bot {
                             game_state.move_scores,
                             std::ref(game_state.stop_search),
                             current_turn);
-        // std::thread search2(mc_search, std::ref(game_state.initial), 
-        //                     std::ref(game_state.search2),
-        //                     game_state.move_scores,
-        //                     std::ref(game_state.stop_search),
-        //                     current_turn);
-        // std::thread search3(mc_search, std::ref(game_state.initial), 
-        //                     std::ref(game_state.search3),
-        //                     game_state.move_scores,
-        //                     std::ref(game_state.stop_search),
-        //                     current_turn);
-        // std::thread search4(mc_search, std::ref(game_state.initial), 
-        //                     std::ref(game_state.search4),
-        //                     game_state.move_scores,
-        //                     std::ref(game_state.stop_search),
-        //                     current_turn);
+        std::thread search2(mc_search, std::ref(game_state.initial), 
+                            std::ref(game_state.search2),
+                            game_state.move_scores,
+                            std::ref(game_state.stop_search),
+                            current_turn);
+        std::thread search3(mc_search, std::ref(game_state.initial), 
+                            std::ref(game_state.search3),
+                            game_state.move_scores,
+                            std::ref(game_state.stop_search),
+                            current_turn);
+        std::thread search4(mc_search, std::ref(game_state.initial), 
+                            std::ref(game_state.search4),
+                            game_state.move_scores,
+                            std::ref(game_state.stop_search),
+                            current_turn);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1950));
         game_state.stop_search.store(true);
@@ -546,10 +552,11 @@ namespace bot {
 
         for (uint16_t i = 0; i < 256; i++) {
             if (move_scores[i] > 0) {
+
                 uint16_t index = i << 1;
                 uint64_t wins = move_scores[index];
                 uint64_t losses = move_scores[index + 1];
-                if (wins * best_losses > best_wins * losses) {
+                if (best_wins == 0 || (wins * best_losses > best_wins * losses)) {
                     best_wins = wins;
                     best_losses = losses;
                     best_building_num = index >> 7;
@@ -559,13 +566,15 @@ namespace bot {
         }
         uint8_t row = best_position >> 3;
         uint8_t col = best_position & 7;
-        
+
+        // std::cout << "best row " << (int) best_position << std::endl;
+        // std::cout << "best col " << (int) best
         write_command_to_file(row, col, best_building_num);
 
         search1.join();
-        // search2.join();
-        // search3.join();
-        // search4.join();
+        search2.join();
+        search3.join();
+        search4.join();
     }
 
     uint16_t read_state(game_state_t& game_state, std::string& state_path) {
