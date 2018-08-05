@@ -25,6 +25,7 @@ namespace bot {
 
     typedef uint64_t missile_positions_t;
     typedef uint64_t building_positions_t;
+    typedef uint64_t tesla_tower_t;
     typedef uint16_t energy_t;
     typedef uint16_t health_t;
 
@@ -125,30 +126,138 @@ namespace bot {
         }
     }
 
-    inline int16_t get_construction_time_left(uint64_t tesla_tower) {
+    inline int16_t get_construction_time_left(tesla_tower_t tesla_tower) {
         return tesla_tower & 65535;
     }
 
-    inline uint8_t get_position(uint64_t tesla_tower) {
+    inline uint8_t get_tesla_tower_position(tesla_tower_t tesla_tower) {
         return (tesla_tower >> 16) & 127;
     }
 
-    inline uint8_t get_weapon_cooldown_time_left(uint64_t tesla_tower) {
+    inline uint8_t get_weapon_cooldown_time_left(tesla_tower_t tesla_tower) {
         return tesla_tower >> 24;
     }
 
-    // inline void fire_tesla_towers(player_t& player) {
-    //     uint64_t tesla_tower_1 = player.tesla_towers[0];
-    //     uint64_t tesla_tower_2 = player.tesla_towers[1];
-    //     if (tesla_tower_1) {
-    //         int16_t construction_time_left = get_construction_time_left(tesla_tower_1);
-    //         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower_1);
-    //         if (construction_time_left < 0 && !weapon_cooldown_time_left) {
-    //             unint8_t position = get_position(tesla_tower_1);
-                
-    //         }
-    //     }
-    // }
+    uint32_t msb(uint32_t n) {
+
+        static const uint8_t debruijnSequence[32] = {
+            0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+            8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
+        };
+
+        n |= n >> 1;
+        n |= n >> 2;
+        n |= n >> 4;
+        n |= n >> 8;
+        n |= n >> 16;
+
+        return debruijnSequence[(uint32_t)(n * 0x07C4ACDDU) >> 27];
+    }
+
+    inline uint32_t get_tesla_attack_row(building_positions_t occupied, uint8_t row) {
+        return (occupied >> row) & 7;
+    }
+
+    inline building_positions_t find_constructed(player_t& player) {
+        building_positions_t constructed = player.energy_buildings;
+        for (uint8_t i = 0; i < 4; i++) {
+            constructed |= player.attack_buildings[i];
+        }
+        for (uint8_t i = 0; i < 4; i++) {
+            constructed |= player.defence_buildings[i];
+        }
+        if (player.tesla_towers[0]) {
+            tesla_tower_t tesla_tower1 = player.tesla_towers[0];
+            int16_t construction_time_left1 = get_construction_time_left(tesla_tower1);
+            if (construction_time_left1 < 0) {
+                uint8_t position1 = get_tesla_tower_position(tesla_tower1);
+                constructed |= (building_positions_t) 1 << position1;
+                if (player.tesla_towers[1]) {
+                    tesla_tower_t tesla_tower2 = player.tesla_towers[1];
+                    int16_t construction_time_left2 = get_construction_time_left(tesla_tower2);
+                    if (construction_time_left2 < 0) {
+                        uint8_t position2 = get_tesla_tower_position(tesla_tower2);
+                        constructed |= (building_positions_t) 1 << position2;
+                    }
+                }
+            }
+        }
+        return constructed;
+    }
+
+    inline building_positions_t find_occupied(player_t& player) {
+        building_positions_t occupied = player.energy_buildings 
+            | player.energy_building_queue
+            | player.attack_building_queue;
+        for (uint8_t i = 0; i < 4; i++) {
+            occupied |= player.attack_buildings[i];
+        }
+        for (uint8_t i = 0; i < 4; i++) {
+            occupied |= player.defence_buildings[i];
+        }
+        for (uint8_t i = 0; i < 4; i++) {
+            occupied |= player.defence_building_queue[i];
+        }
+        if (player.tesla_towers[0]) {
+            uint8_t tesla_tower_position = get_tesla_tower_position(player.tesla_towers[0]);
+            occupied |= (building_positions_t) 1 << tesla_tower_position;
+            if (player.tesla_towers[1]) {
+                uint8_t tesla_tower_position = get_tesla_tower_position(player.tesla_towers[1]);
+                occupied |= (building_positions_t) 1 << tesla_tower_position;
+            }
+        }
+        return occupied;
+    }
+
+    inline uint8_t max_uint8(uint8_t one, uint8_t other) {
+        return one ^ ((one ^ other) & -(one < other));
+    }
+
+    inline uint8_t min_uint8(uint8_t one, uint8_t other) {
+        return other ^ ((one ^ other) & -(one < other));
+    }
+
+    inline void collide_tesla_shots(building_positions_t attacked_buildings, player_t& player) {
+        building_positions_t intersection = attacked_buildings & player.energy_buildings;
+        player.energy_buildings ^= intersection;
+        attacked_buildings ^= intersection;
+        for (uint8_t i = 0; i < 4; i++) {
+            intersection = attacked_buildings & player.attack_buildings[i];
+            player.attack_buildings[i] ^= intersection;
+            attacked_buildings ^= intersection;
+        }
+        for (uint8_t i = 0; i < 4; i++) {
+            intersection = player.defence_buildings[i] & attacked_buildings;
+            player.defence_buildings[i] ^= intersection;
+            attacked_buildings ^= intersection;
+        }
+    }
+
+    inline building_positions_t determine_attacked_buildings(player_t& enemy, tesla_tower_t tesla_tower) {
+        if (tesla_tower) {
+            int16_t construction_time_left = get_construction_time_left(tesla_tower);
+            uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
+            if (construction_time_left < 0 && !weapon_cooldown_time_left) {
+                uint8_t position = get_tesla_tower_position(tesla_tower);
+                uint8_t row = position >> 8;
+                building_positions_t constructed = find_constructed(enemy);
+                uint8_t upper_coordinate = max_uint8(row, row + 1);
+                uint8_t lower_coordinate = min_uint8(row, row - 1);
+                uint32_t upper_row = get_tesla_attack_row(constructed, upper_coordinate);
+                uint32_t middle_row = get_tesla_attack_row(constructed, row);
+                uint32_t lower_row = get_tesla_attack_row(constructed, lower_coordinate);
+                uint8_t upper_tower_position = msb(upper_row);
+                uint8_t middle_tower_position = msb(middle_row);
+                uint8_t lower_tower_position = msb(lower_row);
+                building_positions_t attacked_buildings = (building_positions_t) 1 << ((upper_coordinate << 3) | upper_tower_position) 
+                    | (building_positions_t) 1 << ((row << 3) | middle_tower_position) 
+                    | (building_positions_t) 1 << ((lower_coordinate << 3) | lower_tower_position);
+                return attacked_buildings;
+            }
+            return 0;
+        }
+        return 0;
+    }
 
     uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
         if (player_type == "A") {
@@ -358,22 +467,6 @@ namespace bot {
         uint8_t zero_bits = count_zero_bits(occupied);
         uint8_t selected_position = mt() % zero_bits;
         return 64 - select_ith_bit(~occupied, 1 + selected_position);
-    }
-
-    inline uint64_t find_occupied(player_t& player) {
-        building_positions_t occupied = player.energy_buildings 
-            | player.energy_building_queue
-            | player.attack_building_queue;
-        for (uint8_t i = 0; i < 4; i++) {
-            occupied |= player.attack_buildings[i];
-        }
-        for (uint8_t i = 0; i < 4; i++) {
-            occupied |= player.defence_buildings[i];
-        }
-        for (uint8_t i = 0; i < 4; i++) {
-            occupied |= player.defence_building_queue[i];
-        }
-        return occupied;
     }
 
     inline void queue_attack_building(building_positions_t new_building, player_t& player) {
