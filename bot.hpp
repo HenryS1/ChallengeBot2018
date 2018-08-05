@@ -37,6 +37,7 @@ namespace bot {
         building_positions_t defence_building_queue[4];
         building_positions_t player_missiles[4];
         building_positions_t enemy_half_missiles[4];
+        building_positions_t tesla_towers[2];
         energy_t energy;
         health_t health;
     };
@@ -51,11 +52,18 @@ namespace bot {
         player.health = player_state.at("health").get<health_t>();
     }
 
+    inline uint8_t position_from_row_and_col(uint8_t row, uint8_t col) {
+        if (col > 7) {
+            col = 15 - col;
+        }
+        return ((row << 3) + (col & 7));
+    }
+
     inline building_positions_t entity_from_coordinate(uint8_t row, uint8_t col) {
         if (col > 7) {
             col = 15 - col;
         }
-        return (building_positions_t)1 << ((row << 3) + (col & 7));
+        return (building_positions_t)1 << position_from_row_and_col(row, col);
     }
 
     uint64_t* find_where_to_put_building(uint16_t current_turn,
@@ -64,7 +72,7 @@ namespace bot {
         std::string building_type = building.at("buildingType").get<std::string>();
         int16_t construction_time_left = building.at("constructionTimeLeft").get<int16_t>();
         if (building_type == "TESLA") {
-            return &(player.attack_buildings[current_turn & 3]);
+            return player.tesla_towers[0] ? player.tesla_towers : &(player.tesla_towers[1]);
         } else if (building_type == "ATTACK") {
             if (construction_time_left > -1) {
                 return &(player.attack_building_queue);
@@ -106,12 +114,42 @@ namespace bot {
                 for (uint8_t i = (4 - (health / 5)); i < 4; i++) {
                     place_to_put_building[i] |= new_building;
                 }
+            } else if (building_type == "TESLA") {
+                uint64_t position = position_from_row_and_col(row, col);
+                uint64_t weapon_cooldown_time_left = j.at("weaponCooldownTimeLeft").get<uint64_t>();
+                (*place_to_put_building) = (weapon_cooldown_time_left << 24) 
+                    | (position << 16) | construction_time_left;
             } else {
                 (*place_to_put_building) |= new_building;
             }
         }
     }
-    
+
+    inline int16_t get_construction_time_left(uint64_t tesla_tower) {
+        return tesla_tower & 65535;
+    }
+
+    inline uint8_t get_position(uint64_t tesla_tower) {
+        return (tesla_tower >> 16) & 127;
+    }
+
+    inline uint8_t get_weapon_cooldown_time_left(uint64_t tesla_tower) {
+        return tesla_tower >> 24;
+    }
+
+    // inline void fire_tesla_towers(player_t& player) {
+    //     uint64_t tesla_tower_1 = player.tesla_towers[0];
+    //     uint64_t tesla_tower_2 = player.tesla_towers[1];
+    //     if (tesla_tower_1) {
+    //         int16_t construction_time_left = get_construction_time_left(tesla_tower_1);
+    //         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower_1);
+    //         if (construction_time_left < 0 && !weapon_cooldown_time_left) {
+    //             unint8_t position = get_position(tesla_tower_1);
+                
+    //         }
+    //     }
+    // }
+
     uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
         if (player_type == "A") {
             return col > 7 ? player.enemy_half_missiles : player.player_missiles;
@@ -137,6 +175,17 @@ namespace bot {
         }
     }
 
+    inline void sort_tesla_towers_by_construction_time(player_t& player) {
+        uint64_t tesla_tower_1 = player.tesla_towers[0];
+        uint64_t tesla_tower_2 = player.tesla_towers[1];
+        if (tesla_tower_1 && tesla_tower_2) {
+            if (get_construction_time_left(tesla_tower_1) > get_construction_time_left(tesla_tower_2)) {
+                player.tesla_towers[0] = tesla_tower_2;
+                player.tesla_towers[1] = tesla_tower_1;
+            }
+        }
+    }
+
     void read_buildings_and_missiles_from_map(const json& game_map,
                                               player_t& a,
                                               player_t& b,
@@ -154,6 +203,8 @@ namespace bot {
                 add_to_player_missiles(missiles, a, b);
             }
         }
+        sort_tesla_towers_by_construction_time(a);
+        sort_tesla_towers_by_construction_time(b);
     }
 
     uint16_t read_from_state(player_t& a, player_t& b, const json& state) {
