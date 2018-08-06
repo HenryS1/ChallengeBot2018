@@ -61,9 +61,6 @@ namespace bot {
     }
 
     inline building_positions_t entity_from_coordinate(uint8_t row, uint8_t col) {
-        if (col > 7) {
-            col = 15 - col;
-        }
         return (building_positions_t)1 << position_from_row_and_col(row, col);
     }
 
@@ -240,29 +237,24 @@ namespace bot {
     inline building_positions_t determine_attacked_buildings(player_t& player,
                                                              player_t& enemy, 
                                                              tesla_tower_t tesla_tower) {
-        if (tesla_tower) {
-            int16_t construction_time_left = get_construction_time_left(tesla_tower);
-            uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-            if (construction_time_left < 0 && !weapon_cooldown_time_left && player.energy > 99) {
-                uint8_t position = get_tesla_tower_position(tesla_tower);
-                uint8_t row = position >> 8;
-                building_positions_t constructed = find_constructed(enemy);
-                uint8_t upper_coordinate = max_uint8(row, row + 1);
-                uint8_t lower_coordinate = min_uint8(row, row - 1);
-                uint32_t upper_row = get_tesla_attack_row(constructed, upper_coordinate);
-                uint32_t middle_row = get_tesla_attack_row(constructed, row);
-                uint32_t lower_row = get_tesla_attack_row(constructed, lower_coordinate);
-                uint8_t upper_tower_position = msb(upper_row);
-                uint8_t middle_tower_position = msb(middle_row);
-                uint8_t lower_tower_position = msb(lower_row);
-                building_positions_t attacked_buildings = (building_positions_t) 1 << ((upper_coordinate << 3) | upper_tower_position) 
-                    | (building_positions_t) 1 << ((row << 3) | middle_tower_position) 
-                    | (building_positions_t) 1 << ((lower_coordinate << 3) | lower_tower_position);
-                return attacked_buildings;
-            }
-            return 0;
-        }
-        return 0;
+        int16_t construction_time_left = get_construction_time_left(tesla_tower);
+        uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
+        uint8_t position = get_tesla_tower_position(tesla_tower);
+        uint8_t row = position >> 8;
+        building_positions_t constructed = find_constructed(enemy);
+        uint8_t upper_coordinate = max_uint8(row, row + 1);
+        uint8_t lower_coordinate = min_uint8(row, row - 1);
+        uint32_t upper_row = get_tesla_attack_row(constructed, upper_coordinate);
+        uint32_t middle_row = get_tesla_attack_row(constructed, row);
+        uint32_t lower_row = get_tesla_attack_row(constructed, lower_coordinate);
+        uint8_t upper_tower_position = msb(upper_row);
+        uint8_t middle_tower_position = msb(middle_row);
+        uint8_t lower_tower_position = msb(lower_row);
+        building_positions_t attacked_buildings = (building_positions_t) 1 << ((upper_coordinate << 3) | upper_tower_position) 
+            | (building_positions_t) 1 << ((row << 3) | middle_tower_position) 
+            | (building_positions_t) 1 << ((lower_coordinate << 3) | lower_tower_position);
+        return (((tesla_tower == 0) | (construction_time_left > -1)
+                 | (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & attacked_buildings;
     }
 
     inline void decrement_tesla_tower_cooldown(player_t& player, uint8_t tesla_index) {
