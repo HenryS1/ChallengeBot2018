@@ -56,6 +56,8 @@ namespace tick_test {
     void check_player_entries_are_equal(const path& round_dir,
                                         bot::player_t& player_check,
                                         bot::player_t& player) {
+        std::cout << "ENERGY BUILDINGS " << player_check.energy_buildings << " " 
+            << player.energy_buildings << std::endl;
         assert(player_check.energy_buildings == player.energy_buildings);
         assert(player_check.attack_building_queue == player.attack_building_queue);
         std::cout << player_check.energy_building_queue << " " << 
@@ -68,10 +70,12 @@ namespace tick_test {
             assert(player_check.attack_buildings[i] == player.attack_buildings[i]);
             std::cout << "defence_buildings[" << (int)i << "] "
                       << player_check.defence_buildings[i] << " "
-                << player.defence_buildings[i] << std::endl;
+                      << player.defence_buildings[i] << std::endl;
             assert(player_check.defence_buildings[i] == player.defence_buildings[i]);
             assert(player_check.defence_building_queue[i] == player.defence_building_queue[i]);
         }
+        assert(player_check.tesla_towers[0] == player.tesla_towers[0]);
+        assert(player_check.tesla_towers[1] == player.tesla_towers[1]);
     }
 
     void check_player_missiles_are_equal(const path& round_dir,
