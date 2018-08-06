@@ -281,8 +281,10 @@ namespace bot {
     }
 
     inline void fire_from_tesla_towers(player_t& player, player_t& enemy) {
-        fire_from_tesla_tower(player, enemy, 0);
-        fire_from_tesla_tower(player, enemy, 1);
+        if (player.tesla_towers[0]) {
+            fire_from_tesla_tower(player, enemy, 0);
+            fire_from_tesla_tower(player, enemy, 1);
+        }
     }
 
     uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
