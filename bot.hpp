@@ -73,7 +73,7 @@ namespace bot {
         std::string building_type = building.at("buildingType").get<std::string>();
         int16_t construction_time_left = building.at("constructionTimeLeft").get<int16_t>();
         if (building_type == "TESLA") {
-            return player.tesla_towers[0] ? player.tesla_towers : &(player.tesla_towers[1]);
+            return player.tesla_towers[0] ? &(player.tesla_towers[1]) : player.tesla_towers;
         } else if (building_type == "ATTACK") {
             if (construction_time_left > -1) {
                 return &(player.attack_building_queue);
