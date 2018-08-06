@@ -166,22 +166,18 @@ namespace bot {
         for (uint8_t i = 0; i < 4; i++) {
             constructed |= player.defence_buildings[i];
         }
-        if (player.tesla_towers[0]) {
-            tesla_tower_t tesla_tower1 = player.tesla_towers[0];
-            int16_t construction_time_left1 = get_construction_time_left(tesla_tower1);
-            if (construction_time_left1 < 0) {
-                uint8_t position1 = get_tesla_tower_position(tesla_tower1);
-                constructed |= (building_positions_t) 1 << position1;
-                if (player.tesla_towers[1]) {
-                    tesla_tower_t tesla_tower2 = player.tesla_towers[1];
-                    int16_t construction_time_left2 = get_construction_time_left(tesla_tower2);
-                    if (construction_time_left2 < 0) {
-                        uint8_t position2 = get_tesla_tower_position(tesla_tower2);
-                        constructed |= (building_positions_t) 1 << position2;
-                    }
-                }
-            }
-        }
+        tesla_tower_t tesla_tower1 = player.tesla_towers[0];
+        int16_t construction_time_left1 = get_construction_time_left(tesla_tower1);
+        uint8_t position1 = get_tesla_tower_position(tesla_tower1);
+        constructed |= (building_positions_t) ((construction_time_left1 < 0)
+                                               & (tesla_tower1 > 0)) << position1;
+
+        tesla_tower_t tesla_tower2 = player.tesla_towers[1];
+        int16_t construction_time_left2 = get_construction_time_left(tesla_tower2);
+        uint8_t position2 = get_tesla_tower_position(tesla_tower2);
+        constructed |= (building_positions_t) ((tesla_tower2 > 0) 
+                                               & (construction_time_left2 < 0)) << position2;
+
         return constructed;
     }
 
@@ -198,14 +194,14 @@ namespace bot {
         for (uint8_t i = 0; i < 4; i++) {
             occupied |= player.defence_building_queue[i];
         }
-        if (player.tesla_towers[0]) {
-            uint8_t tesla_tower_position = get_tesla_tower_position(player.tesla_towers[0]);
-            occupied |= (building_positions_t) 1 << tesla_tower_position;
-            if (player.tesla_towers[1]) {
-                uint8_t tesla_tower_position = get_tesla_tower_position(player.tesla_towers[1]);
-                occupied |= (building_positions_t) 1 << tesla_tower_position;
-            }
-        }
+        uint64_t tesla_tower1 = player.tesla_towers[0];
+        uint8_t tesla_tower_position1 = get_tesla_tower_position(tesla_tower1);
+        occupied |= (building_positions_t) (tesla_tower1 > 0) << tesla_tower_position1;
+ 
+        uint64_t tesla_tower2 = player.tesla_towers[1];
+        uint8_t tesla_tower_position2 = get_tesla_tower_position(tesla_tower2);
+        occupied |= (building_positions_t) (tesla_tower2 > 0) << tesla_tower_position2;
+
         return occupied;
     }
 
@@ -233,11 +229,21 @@ namespace bot {
         }
     }
 
-    inline building_positions_t determine_attacked_buildings(player_t& enemy, tesla_tower_t tesla_tower) {
+    inline void harm_enemy(tesla_tower_t tesla_tower, player_t& player, player_t& enemy) {
+        uint8_t col = get_tesla_tower_position(tesla_tower) & 7;
+        int16_t construction_time_left = get_construction_time_left(tesla_tower);
+        uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
+        enemy.health -= (((col < 7) | (construction_time_left > -1) | 
+                          (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 20;
+    }
+
+    inline building_positions_t determine_attacked_buildings(player_t& player,
+                                                             player_t& enemy, 
+                                                             tesla_tower_t tesla_tower) {
         if (tesla_tower) {
             int16_t construction_time_left = get_construction_time_left(tesla_tower);
             uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-            if (construction_time_left < 0 && !weapon_cooldown_time_left) {
+            if (construction_time_left < 0 && !weapon_cooldown_time_left && player.energy > 99) {
                 uint8_t position = get_tesla_tower_position(tesla_tower);
                 uint8_t row = position >> 8;
                 building_positions_t constructed = find_constructed(enemy);
@@ -257,6 +263,34 @@ namespace bot {
             return 0;
         }
         return 0;
+    }
+
+    inline void decrement_tesla_tower_cooldown(player_t& player, uint8_t tesla_index) {
+        uint64_t tesla_tower = player.tesla_towers[tesla_index];
+        uint8_t weapon_cooldown_time = get_weapon_cooldown_time_left(tesla_tower);
+        tesla_tower ^= weapon_cooldown_time;
+        tesla_tower |= min_uint8(weapon_cooldown_time - 1, weapon_cooldown_time);
+        player.tesla_towers[0] = tesla_tower;
+    }
+
+    inline void fire_from_tesla_tower(player_t& player, player_t& enemy, uint8_t tesla_index) {
+        uint64_t tesla_tower = player.tesla_towers[tesla_index];
+        building_positions_t attacked_buildings = determine_attacked_buildings(player, enemy, tesla_tower);
+        int16_t construction_time_left = get_construction_time_left(tesla_tower);
+        uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
+        player.energy -= (((construction_time_left > -1) | 
+                           (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 100;
+
+        decrement_tesla_tower_cooldown(player, tesla_index);
+
+        harm_enemy(tesla_tower, player, enemy);
+
+        collide_tesla_shots(attacked_buildings, enemy);
+    }
+
+    inline void fire_from_tesla_towers(player_t& player, player_t& enemy) {
+        fire_from_tesla_tower(player, enemy, 0);
+        fire_from_tesla_tower(player, enemy, 1);
     }
 
     uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
@@ -593,6 +627,8 @@ namespace bot {
                               uint16_t current_turn) {
         build_buildings(a, current_turn);
         build_buildings(b, current_turn);
+        fire_from_tesla_towers(a, b);
+        fire_from_tesla_towers(b, a);
         make_move(a_move, a, current_turn);
         make_move(b_move, b, current_turn);
         fire_missiles(a, current_turn);
