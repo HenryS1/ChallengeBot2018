@@ -417,6 +417,16 @@ namespace bot {
             player.defence_buildings[i] ^= intersection;
             enemy_missiles ^= intersection;
         }
+        uint64_t tesla_tower1 = player.tesla_towers[0];
+        intersection = ((building_positions_t)(tesla_tower1 > 0)
+            << get_tesla_tower_position(tesla_tower1)) & enemy_missiles;
+        enemy_missiles ^= intersection;
+        player.tesla_towers[0] &= ((building_positions_t)0 - (intersection == 0)) & tesla_tower1;
+        uint64_t tesla_tower2 = player.tesla_towers[1];
+        intersection = ((building_positions_t)(tesla_tower2 > 0)
+            << get_tesla_tower_position(tesla_tower2)) & enemy_missiles;
+        enemy_missiles ^= intersection;
+        player.tesla_towers[1] &= ((building_positions_t)0 - (intersection == 0)) & tesla_tower2;
         enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
     }
 
