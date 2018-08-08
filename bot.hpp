@@ -576,12 +576,14 @@ namespace bot {
         case 3:
             queue_energy_building(new_building, player);
             player.energy -= 20;
+            break;
         case 5:
-            tesla_tower_t new_tesla_tower = make_tesla_tower(10, 0, position);
+            tesla_tower_t new_tesla_tower = make_tesla_tower(9, 0, position);
             tesla_tower_t original_tower = player.tesla_towers[0];
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
             player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
                 & new_tesla_tower;
+            break;
         }
     }
 
