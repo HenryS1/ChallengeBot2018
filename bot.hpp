@@ -95,6 +95,12 @@ namespace bot {
         }
     }
 
+    inline tesla_tower_t make_tesla_tower(int16_t construction_time_left, 
+                                          uint8_t weapon_cooldown_time_left,
+                                          uint8_t position) {
+        return (weapon_cooldown_time_left << 24) | (position << 16) | construction_time_left;
+    }
+
     void add_to_player_buildings(std::vector<json>& buildings, 
                                  player_t& player, 
                                  uint16_t current_turn) {
@@ -114,9 +120,11 @@ namespace bot {
                 }
             } else if (building_type == "TESLA") {
                 uint64_t position = position_from_row_and_col(row, col);
-                uint64_t weapon_cooldown_time_left = j.at("weaponCooldownTimeLeft").get<uint64_t>();
-                (*place_to_put_building) = (weapon_cooldown_time_left << 24) 
-                    | (position << 16) | construction_time_left;
+                uint64_t weapon_cooldown_time_left = 
+                    j.at("weaponCooldownTimeLeft").get<uint64_t>();
+                (*place_to_put_building) = make_tesla_tower(construction_time_left,
+                                                            weapon_cooldown_time_left,
+                                                            position);
             } else {
                 (*place_to_put_building) |= new_building;
             }
@@ -191,11 +199,11 @@ namespace bot {
         for (uint8_t i = 0; i < 4; i++) {
             occupied |= player.defence_building_queue[i];
         }
-        uint64_t tesla_tower1 = player.tesla_towers[0];
+        tesla_tower_t tesla_tower1 = player.tesla_towers[0];
         uint8_t tesla_tower_position1 = get_tesla_tower_position(tesla_tower1);
         occupied |= (building_positions_t) (tesla_tower1 > 0) << tesla_tower_position1;
  
-        uint64_t tesla_tower2 = player.tesla_towers[1];
+        tesla_tower_t tesla_tower2 = player.tesla_towers[1];
         uint8_t tesla_tower_position2 = get_tesla_tower_position(tesla_tower2);
         occupied |= (building_positions_t) (tesla_tower2 > 0) << tesla_tower_position2;
 
@@ -568,6 +576,12 @@ namespace bot {
         case 3:
             queue_energy_building(new_building, player);
             player.energy -= 20;
+        case 5:
+            tesla_tower_t new_tesla_tower = make_tesla_tower(10, 0, position);
+            tesla_tower_t original_tower = player.tesla_towers[0];
+            player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
+            player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
+                & new_tesla_tower;
         }
     }
 
