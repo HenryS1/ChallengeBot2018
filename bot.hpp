@@ -205,17 +205,24 @@ namespace bot {
     inline void collide_tesla_shots(building_positions_t attacked_buildings, player_t& player) {
         building_positions_t intersection = attacked_buildings & player.energy_buildings;
         player.energy_buildings ^= intersection;
-        attacked_buildings ^= intersection;
         for (uint8_t i = 0; i < 4; i++) {
             intersection = attacked_buildings & player.attack_buildings[i];
             player.attack_buildings[i] ^= intersection;
-            attacked_buildings ^= intersection;
         }
         for (uint8_t i = 0; i < 4; i++) {
             intersection = player.defence_buildings[i] & attacked_buildings;
             player.defence_buildings[i] ^= intersection;
-            attacked_buildings ^= intersection;
         }
+        uint64_t tesla_tower1 = player.tesla_towers[0];
+        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
+                        << get_tesla_tower_position(tesla_tower1)) & attacked_buildings;
+        player.tesla_towers[0] &= ((building_positions_t)0 - 
+                                   (intersection == 0)) & tesla_tower1;
+        uint64_t tesla_tower2 = player.tesla_towers[1];
+        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) > -1)
+                        << get_tesla_tower_position(tesla_tower2)) & attacked_buildings;
+        player.tesla_towers[1] &= ((building_positions_t)0 
+                                   - (intersection == 0)) & tesla_tower2;
     }
 
     inline void harm_enemy(tesla_tower_t tesla_tower, player_t& player, player_t& enemy) {
