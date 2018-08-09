@@ -439,17 +439,17 @@ namespace bot {
         }
         if (player.tesla_towers[0]) {
             uint64_t tesla_tower1 = player.tesla_towers[0];
-            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) < 0)
                             << get_tesla_tower_position(tesla_tower1)) & enemy_missiles;
+            tesla_tower1 &= ((building_positions_t) -(intersection == 0));
             enemy_missiles ^= intersection;
-            player.tesla_towers[0] &= ((building_positions_t)0 - 
-                                       (intersection == 0)) & tesla_tower1;
             uint64_t tesla_tower2 = player.tesla_towers[1];
-            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) > -1)
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) < 0)
                             << get_tesla_tower_position(tesla_tower2)) & enemy_missiles;
+            tesla_tower2 &= ((building_positions_t) -(intersection == 0));
             enemy_missiles ^= intersection;
-            player.tesla_towers[1] &= ((building_positions_t)0 
-                                       - (intersection == 0)) & tesla_tower2;
+            player.tesla_towers[0] = (-(tesla_tower1 == 0) & tesla_tower2) | tesla_tower1;
+            player.tesla_towers[1] = (-(tesla_tower1 > 0) & tesla_tower2);
         }
         enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
     }
