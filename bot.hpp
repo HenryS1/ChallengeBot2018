@@ -203,26 +203,28 @@ namespace bot {
     }
 
     inline void collide_tesla_shots(building_positions_t attacked_buildings, player_t& player) {
-        building_positions_t intersection = attacked_buildings & player.energy_buildings;
-        player.energy_buildings ^= intersection;
-        for (uint8_t i = 0; i < 4; i++) {
-            intersection = attacked_buildings & player.attack_buildings[i];
-            player.attack_buildings[i] ^= intersection;
+        if (attacked_buildings) {
+            building_positions_t intersection = attacked_buildings & player.energy_buildings;
+            player.energy_buildings ^= intersection;
+            for (uint8_t i = 0; i < 4; i++) {
+                intersection = attacked_buildings & player.attack_buildings[i];
+                player.attack_buildings[i] ^= intersection;
+            }
+            for (uint8_t i = 0; i < 4; i++) {
+                intersection = player.defence_buildings[i] & attacked_buildings;
+                player.defence_buildings[i] ^= intersection;
+            }
+            uint64_t tesla_tower1 = player.tesla_towers[0];
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) < 0)
+                            << get_tesla_tower_position(tesla_tower1)) & attacked_buildings;
+            tesla_tower1 &= ((building_positions_t) -(intersection == 0));
+            uint64_t tesla_tower2 = player.tesla_towers[1];
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) < 0)
+                            << get_tesla_tower_position(tesla_tower2)) & attacked_buildings;
+            tesla_tower2 &= ((building_positions_t) -(intersection == 0));
+            player.tesla_towers[0] = (-(tesla_tower1 == 0) & tesla_tower2) | tesla_tower1;
+            player.tesla_towers[1] = (-(tesla_tower1 > 0) & tesla_tower2);
         }
-        for (uint8_t i = 0; i < 4; i++) {
-            intersection = player.defence_buildings[i] & attacked_buildings;
-            player.defence_buildings[i] ^= intersection;
-        }
-        uint64_t tesla_tower1 = player.tesla_towers[0];
-        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
-                        << get_tesla_tower_position(tesla_tower1)) & attacked_buildings;
-        player.tesla_towers[0] &= ((building_positions_t)0 - 
-                                   (intersection == 0)) & tesla_tower1;
-        uint64_t tesla_tower2 = player.tesla_towers[1];
-        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) > -1)
-                        << get_tesla_tower_position(tesla_tower2)) & attacked_buildings;
-        player.tesla_towers[1] &= ((building_positions_t)0 
-                                   - (intersection == 0)) & tesla_tower2;
     }
 
     inline void harm_enemy(tesla_tower_t tesla_tower, player_t& player, player_t& enemy) {
@@ -274,7 +276,7 @@ namespace bot {
         player.tesla_towers[tesla_index] = tesla_tower;
     }
 
-    inline void fire_from_tesla_tower(player_t& player, player_t& enemy, uint8_t tesla_index) {
+    inline uint64_t fire_from_tesla_tower(player_t& player, player_t& enemy, uint8_t tesla_index) {
         uint64_t tesla_tower = player.tesla_towers[tesla_index];
         building_positions_t attacked_buildings = 
             determine_attacked_buildings(player, enemy, tesla_tower);
@@ -290,17 +292,18 @@ namespace bot {
 
         harm_enemy(tesla_tower, player, enemy);
 
-        collide_tesla_shots(attacked_buildings, enemy);
-
         player.tesla_towers[tesla_index] |= ((uint64_t)((didnt_fire - 1) & 10) << 24);
-        
+
+        return attacked_buildings;
     }
 
-    inline void fire_from_tesla_towers(player_t& player, player_t& enemy) {
+    inline building_positions_t fire_from_tesla_towers(player_t& player, player_t& enemy) {
         if (player.tesla_towers[0]) {
-            fire_from_tesla_tower(player, enemy, 0);
-            fire_from_tesla_tower(player, enemy, 1);
+            building_positions_t attacked_buildings = fire_from_tesla_tower(player, enemy, 0);
+            attacked_buildings |= fire_from_tesla_tower(player, enemy, 1);
+            return attacked_buildings;
         }
+        return 0;
     }
 
     uint64_t* get_missile_index(uint8_t col, std::string& player_type, player_t& player) {
@@ -669,8 +672,10 @@ namespace bot {
         decrement_tesla_towers_construction_time_left(b);
         build_buildings(a, current_turn);
         build_buildings(b, current_turn);
-        fire_from_tesla_towers(a, b);
-        fire_from_tesla_towers(b, a);
+        building_positions_t attacked_b = fire_from_tesla_towers(a, b);
+        building_positions_t attacked_a = fire_from_tesla_towers(b, a);
+        collide_tesla_shots(attacked_b, b);
+        collide_tesla_shots(attacked_a, a);
         make_move(a_move, a, current_turn);
         make_move(b_move, b, current_turn);
         fire_missiles(a, current_turn);
