@@ -143,22 +143,6 @@ namespace bot {
         return tesla_tower >> 24;
     }
 
-    inline uint32_t msb(uint32_t n) {
-
-        static const uint8_t debruijnSequence[32] = {
-            0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
-            8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
-        };
-
-        n |= n >> 1;
-        n |= n >> 2;
-        n |= n >> 4;
-        n |= n >> 8;
-        n |= n >> 16;
-
-        return debruijnSequence[(uint32_t)(n * 0x07C4ACDDU) >> 27];
-    }
-
     inline uint32_t get_tesla_attack_row(building_positions_t constructed, uint8_t row) {
         return (constructed >> (row << 3)) & 255;
     }
@@ -443,16 +427,20 @@ namespace bot {
             enemy_missiles ^= intersection;
         }
         uint64_t tesla_tower1 = player.tesla_towers[0];
-        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
-            << get_tesla_tower_position(tesla_tower1)) & enemy_missiles;
-        enemy_missiles ^= intersection;
-        player.tesla_towers[0] &= ((building_positions_t)0 - (intersection == 0)) & tesla_tower1;
-        uint64_t tesla_tower2 = player.tesla_towers[1];
-        intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) > -1)
-            << get_tesla_tower_position(tesla_tower2)) & enemy_missiles;
-        enemy_missiles ^= intersection;
-        player.tesla_towers[1] &= ((building_positions_t)0 - (intersection == 0)) & tesla_tower2;
-        enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
+        if (tesla_tower1) {
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
+                            << get_tesla_tower_position(tesla_tower1)) & enemy_missiles;
+            enemy_missiles ^= intersection;
+            player.tesla_towers[0] &= ((building_positions_t)0 - 
+                                       (intersection == 0)) & tesla_tower1;
+            uint64_t tesla_tower2 = player.tesla_towers[1];
+            intersection = ((building_positions_t)(get_construction_time_left(tesla_tower2) > -1)
+                            << get_tesla_tower_position(tesla_tower2)) & enemy_missiles;
+            enemy_missiles ^= intersection;
+            player.tesla_towers[1] &= ((building_positions_t)0 
+                                       - (intersection == 0)) & tesla_tower2;
+            enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
+        }
     }
 
     inline void collide_missiles(player_t& player, player_t& enemy) {
