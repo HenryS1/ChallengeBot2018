@@ -95,7 +95,7 @@ namespace bot {
         }
     }
 
-    inline tesla_tower_t make_tesla_tower(int16_t construction_time_left, 
+    inline tesla_tower_t make_tesla_tower(uint16_t construction_time_left, 
                                           uint8_t weapon_cooldown_time_left,
                                           uint8_t position) {
         return (weapon_cooldown_time_left << 24) | (position << 16) | construction_time_left;
