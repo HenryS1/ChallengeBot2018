@@ -244,7 +244,7 @@ namespace bot {
         building_positions_t constructed = find_constructed(enemy);
         uint8_t upper_coordinate = min_uint8(row, row - 1);
         uint8_t lower_coordinate = max_uint8(row, row + 1);
-        uint32_t hit_mask = (uint32_t)-1 << (15 - col - 9);
+        uint32_t hit_mask = (uint32_t)-1 << min_uint8(15 - col - 9, 0);
         uint64_t upper_row = (get_tesla_attack_row(constructed, upper_coordinate) & hit_mask);
         uint64_t middle_row = (get_tesla_attack_row(constructed, row) & hit_mask);
         middle_row ^= (middle_row & upper_row);
