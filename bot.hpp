@@ -143,7 +143,7 @@ namespace bot {
         return tesla_tower >> 24;
     }
 
-    uint32_t msb(uint32_t n) {
+    inline uint32_t msb(uint32_t n) {
 
         static const uint8_t debruijnSequence[32] = {
             0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
@@ -159,8 +159,8 @@ namespace bot {
         return debruijnSequence[(uint32_t)(n * 0x07C4ACDDU) >> 27];
     }
 
-    inline uint32_t get_tesla_attack_row(building_positions_t occupied, uint8_t row) {
-        return (occupied >> row) & 7;
+    inline uint32_t get_tesla_attack_row(building_positions_t constructed, uint8_t row) {
+        return (constructed >> (row << 3)) & 255;
     }
 
     inline building_positions_t find_constructed(player_t& player) {
@@ -248,11 +248,11 @@ namespace bot {
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
         uint8_t position = get_tesla_tower_position(tesla_tower);
-        uint8_t row = position >> 8;
+        uint8_t row = position >> 3;
         uint8_t col = position & 7;
         building_positions_t constructed = find_constructed(enemy);
-        uint8_t upper_coordinate = max_uint8(row, row + 1);
-        uint8_t lower_coordinate = min_uint8(row, row - 1);
+        uint8_t upper_coordinate = min_uint8(row, row - 1);
+        uint8_t lower_coordinate = max_uint8(row, row + 1);
         uint32_t upper_row = get_tesla_attack_row(constructed, upper_coordinate);
         uint32_t middle_row = get_tesla_attack_row(constructed, row);
         uint32_t lower_row = get_tesla_attack_row(constructed, lower_coordinate);
@@ -270,16 +270,18 @@ namespace bot {
     inline void decrement_tesla_tower_cooldown(player_t& player, uint8_t tesla_index) {
         tesla_tower_t tesla_tower = player.tesla_towers[tesla_index];
         uint8_t weapon_cooldown_time = get_weapon_cooldown_time_left(tesla_tower);
-        tesla_tower ^= weapon_cooldown_time;
-        tesla_tower |= min_uint8(weapon_cooldown_time - 1, weapon_cooldown_time);
+        tesla_tower ^= ((uint64_t)weapon_cooldown_time << 24);
+        tesla_tower |= ((uint64_t)min_uint8(weapon_cooldown_time - 1, weapon_cooldown_time) << 24);
         player.tesla_towers[tesla_index] = tesla_tower;
     }
 
     inline void decrement_tesla_tower_construction_time(player_t& player, uint8_t tesla_index) {
         tesla_tower_t tesla_tower = player.tesla_towers[tesla_index];
-        uint8_t construction_time_left = get_construction_time_left(tesla_tower);
+        uint16_t construction_time_left = get_construction_time_left(tesla_tower);
         tesla_tower ^= construction_time_left;
-        tesla_tower |= ((tesla_tower == 0) - 1) & (construction_time_left - 1);
+        uint16_t new_construction_time_left = (((tesla_tower == 0) - 1) 
+                                               & (construction_time_left - 1));
+        tesla_tower |= new_construction_time_left;
         player.tesla_towers[tesla_index] = tesla_tower;
     }
 
@@ -334,7 +336,9 @@ namespace bot {
         uint64_t tesla_tower_1 = player.tesla_towers[0];
         uint64_t tesla_tower_2 = player.tesla_towers[1];
         if (tesla_tower_1 && tesla_tower_2) {
-            if (get_construction_time_left(tesla_tower_1) > get_construction_time_left(tesla_tower_2)) {
+            if (get_construction_time_left(tesla_tower_1) > 
+                get_construction_time_left(tesla_tower_2)) {
+
                 player.tesla_towers[0] = tesla_tower_2;
                 player.tesla_towers[1] = tesla_tower_1;
             }
