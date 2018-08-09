@@ -433,8 +433,8 @@ namespace bot {
             player.defence_buildings[i] ^= intersection;
             enemy_missiles ^= intersection;
         }
-        uint64_t tesla_tower1 = player.tesla_towers[0];
-        if (tesla_tower1) {
+        if (player.tesla_towers[0]) {
+            uint64_t tesla_tower1 = player.tesla_towers[0];
             intersection = ((building_positions_t)(get_construction_time_left(tesla_tower1) > -1)
                             << get_tesla_tower_position(tesla_tower1)) & enemy_missiles;
             enemy_missiles ^= intersection;
@@ -446,8 +446,8 @@ namespace bot {
             enemy_missiles ^= intersection;
             player.tesla_towers[1] &= ((building_positions_t)0 
                                        - (intersection == 0)) & tesla_tower2;
-            enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
         }
+        enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
     }
 
     inline void collide_missiles(player_t& player, player_t& enemy) {
@@ -602,7 +602,7 @@ namespace bot {
     inline uint16_t select_move(std::mt19937& mt,
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
-        uint16_t position = 0;
+        uint16_t position = 0;     
         if (occupied == max_u_int_64) {
             return 0;
         } else if (player.energy > 19 && player.energy < 30) {
