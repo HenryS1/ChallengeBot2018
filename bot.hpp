@@ -663,6 +663,15 @@ namespace bot {
         decrement_tesla_tower_construction_time(player, 1);
     }
 
+    inline void fire_and_collide_tesla_shots(player_t& a, player_t& b) {
+        if ((a.tesla_towers[0] | b.tesla_towers[0])) {
+            building_positions_t attacked_b = fire_from_tesla_towers(a, b);
+            building_positions_t attacked_a = fire_from_tesla_towers(b, a);
+            collide_tesla_shots(attacked_b, b);
+            collide_tesla_shots(attacked_a, a);
+        }
+    }
+
     inline void advance_state(uint16_t a_move, 
                               uint16_t b_move,
                               player_t& a, 
@@ -672,10 +681,7 @@ namespace bot {
         decrement_tesla_towers_construction_time_left(b);
         build_buildings(a, current_turn);
         build_buildings(b, current_turn);
-        building_positions_t attacked_b = fire_from_tesla_towers(a, b);
-        building_positions_t attacked_a = fire_from_tesla_towers(b, a);
-        collide_tesla_shots(attacked_b, b);
-        collide_tesla_shots(attacked_a, a);
+        fire_and_collide_tesla_shots(a, b);
         make_move(a_move, a, current_turn);
         make_move(b_move, b, current_turn);
         fire_missiles(a, current_turn);
