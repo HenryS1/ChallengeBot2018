@@ -402,11 +402,12 @@ namespace bot {
     const uint64_t first_zeros_mask = ~enemy_hits_mask;
 
     inline void move_current_missiles(uint8_t offset, player_t& player) {
+        uint64_t player_half_missiles = player.player_missiles[offset];
         player.enemy_half_missiles[offset] = 
-            (player.player_missiles[offset] & leading_column_mask) | 
+            (player_half_missiles & leading_column_mask) | 
             ((player.enemy_half_missiles[offset] & first_zeros_mask) >> 1);
         player.player_missiles[offset] = first_zeros_mask & 
-            (player.player_missiles[offset] << 1);
+            (player_half_missiles << 1);
     }
 
     inline void move_missiles(player_t& player) {
