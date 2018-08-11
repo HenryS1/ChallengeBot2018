@@ -493,9 +493,9 @@ namespace bot {
         harm_enemy_with_current_missiles(player, enemy, 3);
     }
 
-    inline uint8_t select_ith_bit(uint64_t n, int8_t i) {
+    inline uint8_t select_ith_bit(uint64_t n, uint64_t i) {
         uint64_t a, b, c, d, f = 64;
-        int64_t e;
+        uint64_t e;
         a = n - ((n >> 1) & 0x5555555555555555);
         b = (a & 0x3333333333333333) + ((a >> 2) & 0x3333333333333333);
         c = (b + (b >> 4)) & 0x0F0F0F0F0F0F0F0F;
@@ -599,6 +599,7 @@ namespace bot {
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
             player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
                 & new_tesla_tower;
+            player.energy -= 300;
             break;
         }
     }
@@ -611,7 +612,7 @@ namespace bot {
             return 0;
         } else if (player.energy > 19 && player.energy < 30) {
             position = select_position(mt, occupied);
-            return 3 + (position << 3);
+            return 3 | (position << 3);
         } else if (player.energy > 29) {
             position = select_position(mt, occupied);
             uint8_t building_num = (mt() % 3) + 1;
@@ -681,11 +682,11 @@ namespace bot {
         decrement_tesla_towers_construction_time_left(b);
         build_buildings(a, current_turn);
         build_buildings(b, current_turn);
-        fire_and_collide_tesla_shots(a, b);
         make_move(a_move, a, current_turn);
         make_move(b_move, b, current_turn);
         fire_missiles(a, current_turn);
         fire_missiles(b, current_turn);
+        fire_and_collide_tesla_shots(a, b);
         move_and_collide_missiles(a, b);
         move_and_collide_missiles(a, b);
         increment_energy(a);
@@ -694,15 +695,15 @@ namespace bot {
 
     inline uint16_t simulate(std::mt19937& mt, player_t& a, player_t& b, uint16_t current_turn) {
         if (a.health > 0 && b.health > 0) {
-            uint16_t a_move = select_move(mt, a);
-            uint16_t b_move = select_move(mt, b);
-            advance_state(a_move, b_move, a, b, current_turn);
+            uint16_t initial_a_move = select_move(mt, a);
+            uint16_t initial_b_move = select_move(mt, b);
+            advance_state(initial_a_move, initial_b_move, a, b, current_turn);
             while (a.health > 0 && b.health > 0) {
-                a_move = select_move(mt, a);
-                b_move = select_move(mt, b);
+                uint16_t a_move = select_move(mt, a);
+                uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
             }
-            return a_move;
+            return initial_a_move;
         } else {
             return 0;
         }
@@ -784,9 +785,9 @@ namespace bot {
         uint8_t best_building_num = 0;
 
         for (uint16_t i = 0; i < 256; i++) {
-            if (move_scores[i] > 0) {
+            uint16_t index = i << 1;
+            if (move_scores[index] > 0) {
 
-                uint16_t index = i << 1;
                 uint64_t wins = move_scores[index];
                 uint64_t losses = move_scores[index + 1];
                 if (best_wins == 0 || (wins * best_losses > best_wins * losses)) {
@@ -816,6 +817,9 @@ namespace bot {
         std::memset(&(game_state.search2), 0, sizeof(board));
         std::memset(&(game_state.search3), 0, sizeof(board));
         std::memset(&(game_state.search4), 0, sizeof(board));
+        for (int i = 0; i < 512; i++) {
+            game_state.move_scores[i] = 0;
+        }
         std::ifstream state_reader(state_path, std::ios::in);
         if (state_reader.is_open()) {
             json game_state_json;
