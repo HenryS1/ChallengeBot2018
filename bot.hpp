@@ -41,6 +41,7 @@ namespace bot {
         building_positions_t tesla_towers[2];
         energy_t energy;
         health_t health;
+        uint8_t turns_protected;
     };
 
     typedef struct player player_t;
@@ -231,7 +232,7 @@ namespace bot {
         uint8_t col = get_tesla_tower_position(tesla_tower) & 7;
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-        enemy.health -= (((col < 7) | (construction_time_left > -1) | 
+        enemy.health -= (((col < 7) | (construction_time_left > -1) | (player.turns_protected > 0) |
                           (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 20;
     }
 
@@ -301,7 +302,7 @@ namespace bot {
         if (player.tesla_towers[0]) {
             building_positions_t attacked_buildings = fire_from_tesla_tower(player, enemy, 0);
             attacked_buildings |= fire_from_tesla_tower(player, enemy, 1);
-            return attacked_buildings;
+            return attacked_buildings & -(enemy.turns_protected == 0);
         }
         return 0;
     }
@@ -404,20 +405,26 @@ namespace bot {
 
     const uint64_t first_zeros_mask = ~enemy_hits_mask;
 
-    inline void move_current_missiles(uint8_t offset, player_t& player) {
+    inline void move_current_missiles(uint8_t offset, 
+                                      player_t& player,
+                                      player_t& enemy) {
         uint64_t player_half_missiles = player.player_missiles[offset];
         player.enemy_half_missiles[offset] = 
-            (player_half_missiles & leading_column_mask) | 
+            (player_half_missiles & leading_column_mask & -(enemy.turns_protected == 0)) | 
             ((player.enemy_half_missiles[offset] & first_zeros_mask) >> 1);
         player.player_missiles[offset] = first_zeros_mask & 
             (player_half_missiles << 1);
     }
 
-    inline void move_missiles(player_t& player) {
-        move_current_missiles(0, player);
-        move_current_missiles(1, player);
-        move_current_missiles(2, player);
-        move_current_missiles(3, player);
+    inline void move_missiles(player_t& a, player_t& b) {
+        move_current_missiles(0, a, b);
+        move_current_missiles(1, a, b);
+        move_current_missiles(2, a, b);
+        move_current_missiles(3, a, b);
+        move_current_missiles(0, b, a);
+        move_current_missiles(1, b, a);
+        move_current_missiles(2, b, a);
+        move_current_missiles(3, b, a);
     }
 
     inline void collide_current_missiles(player_t& player, 
@@ -593,12 +600,17 @@ namespace bot {
             queue_energy_building(new_building, player);
             player.energy -= 20;
             break;
-        case 5:
+        case 5: {
             tesla_tower_t new_tesla_tower = make_tesla_tower(9, 0, position);
             tesla_tower_t original_tower = player.tesla_towers[0];
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
             player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
                 & new_tesla_tower;
+            player.energy -= 100;
+            break;
+        }
+        case 6:
+            player.turns_protected = 6;
             player.energy -= 100;
             break;
         }
@@ -653,8 +665,7 @@ namespace bot {
     inline void move_and_collide_missiles(player_t& a, player_t& b) {
         harm_enemy(a, b);
         harm_enemy(b, a);
-        move_missiles(a);
-        move_missiles(b);
+        move_missiles(a, b);
         collide_missiles(a, b);
         collide_missiles(b, a);
     }
@@ -671,6 +682,10 @@ namespace bot {
             collide_tesla_shots(attacked_b, b);
             collide_tesla_shots(attacked_a, a);
         }
+    }
+
+    inline void decrement_turns_protected(player_t& player) {
+        player.turns_protected -= (player.turns_protected > 0);
     }
 
     inline void advance_state(uint16_t a_move, 
@@ -691,6 +706,8 @@ namespace bot {
         move_and_collide_missiles(a, b);
         increment_energy(a);
         increment_energy(b);
+        decrement_turns_protected(a);
+        decrement_turns_protected(b);
     }
 
     inline uint16_t simulate(std::mt19937& mt, player_t& a, player_t& b, uint16_t current_turn) {
