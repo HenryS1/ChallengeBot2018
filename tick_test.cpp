@@ -29,6 +29,7 @@ namespace tick_test {
                 uint16_t col = result[0];
                 uint16_t row = result[1];
                 uint16_t building_num = result[2];
+                building_num = building_num > 3 ? building_num - 1 : building_num;
                 return ((col + (row * 8)) << 3) | (1 + building_num);
             } else {
                 return 0;

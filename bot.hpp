@@ -601,7 +601,7 @@ namespace bot {
             queue_energy_building(new_building, player);
             player.energy -= 20;
             break;
-        case 5: {
+        case 4: {
             tesla_tower_t new_tesla_tower = make_tesla_tower(9, 0, position);
             tesla_tower_t original_tower = player.tesla_towers[0];
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
@@ -610,7 +610,7 @@ namespace bot {
             player.energy -= 100;
             break;
         }
-        case 6:
+        case 5:
             player.turns_protected = 6;
             player.energy -= 100;
             break;
@@ -757,6 +757,7 @@ namespace bot {
         std::cout << "sim count " << sim_count << std::endl;
         if (command_output.is_open()) {
             if (building_num > 0) {
+                building_num = building_num > 3 ? building_num + 1 : building_num;
                 command_output << (int)col << "," << (int)row << "," << 
                     (int)(building_num - 1) << 
                     std::endl << std::flush;
