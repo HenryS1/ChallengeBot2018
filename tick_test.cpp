@@ -64,16 +64,28 @@ namespace tick_test {
             player.energy_building_queue << std::endl;
         assert(player_check.energy_building_queue == player.energy_building_queue);
         std::cout << "PLAYER HEALTH " << player_check.health << " " << player.health << std::endl;
+        std::cout << "PLAYER PROTECTED TURNS " << (int)player.turns_protected << std::endl;
         assert(player_check.health == player.health);
+        std::cout << "PLAYER ENERGY " << player_check.energy << " " << 
+            player.energy << std::endl;
+        assert(player_check.energy == player.energy);
         std::cout << player_check.health << " " << player.health << std::endl;
         for (uint8_t i = 0; i < 4; i++) {
             assert(player_check.attack_buildings[i] == player.attack_buildings[i]);
-            std::cout << "defence_buildings[" << (int)i << "] "
-                      << player_check.defence_buildings[i] << " "
-                      << player.defence_buildings[i] << std::endl;
+            // std::cout << "defence_buildings[" << (int)i << "] "
+            //           << player_check.defence_buildings[i] << " "
+            //           << player.defence_buildings[i] << std::endl;
             assert(player_check.defence_buildings[i] == player.defence_buildings[i]);
             assert(player_check.defence_building_queue[i] == player.defence_building_queue[i]);
         }
+        std::cout << "tesla towers 0 " << player_check.tesla_towers[0] << " " << player.tesla_towers[0] << std::endl;
+        std::cout << "tesla towers 1 " << player_check.tesla_towers[1] << " " << player.tesla_towers[1] << std::endl;
+        std::cout << "tesla towers position 0 " << 
+            (int)bot::get_tesla_tower_position(player_check.tesla_towers[0]) << " " <<
+            (int)bot::get_tesla_tower_position(player.tesla_towers[0]) << std::endl;
+        std::cout << "tesla towers position 1 " << 
+            (int)bot::get_tesla_tower_position(player_check.tesla_towers[1]) << " " <<
+            (int)bot::get_tesla_tower_position(player.tesla_towers[1]) << std::endl;
         assert(player_check.tesla_towers[0] == player.tesla_towers[0]);
         assert(player_check.tesla_towers[1] == player.tesla_towers[1]);
     }

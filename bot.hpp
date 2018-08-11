@@ -41,7 +41,7 @@ namespace bot {
         building_positions_t tesla_towers[2];
         energy_t energy;
         health_t health;
-        uint8_t turns_protected;
+        int8_t turns_protected;
     };
 
     typedef struct player player_t;
@@ -52,6 +52,7 @@ namespace bot {
         player_t& player = player_state.at("playerType").get<std::string>() == "A" ? a : b;
         player.energy = player_state.at("energy").get<energy_t>();
         player.health = player_state.at("health").get<health_t>();
+        player.turns_protected = player_state.at("activeIronCurtainLifetime").get<int8_t>() + 1;
     }
 
     inline uint8_t position_from_row_and_col(uint8_t row, uint8_t col) {
@@ -232,7 +233,7 @@ namespace bot {
         uint8_t col = get_tesla_tower_position(tesla_tower) & 7;
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-        enemy.health -= (((col < 7) | (construction_time_left > -1) | (player.turns_protected > 0) |
+        enemy.health -= (((col < 7) | (construction_time_left > -1) | (enemy.turns_protected > 0) |
                           (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 20;
     }
 
