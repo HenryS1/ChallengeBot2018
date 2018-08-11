@@ -232,7 +232,6 @@ namespace bot {
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
         enemy.health -= (((col < 7) | (construction_time_left > -1) | 
-        enemy.health -= (((col < 6) | (construction_time_left > -1) | 
                           (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 20;
     }
 
@@ -600,7 +599,7 @@ namespace bot {
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
             player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
                 & new_tesla_tower;
-            player.energy -= 300;
+            player.energy -= 100;
             break;
         }
     }
