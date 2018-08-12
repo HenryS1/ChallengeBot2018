@@ -41,6 +41,7 @@ namespace bot {
         building_positions_t tesla_towers[2];
         energy_t energy;
         health_t health;
+        bool iron_curtain_available;
         int8_t turns_protected;
     };
 
@@ -53,6 +54,7 @@ namespace bot {
         player.energy = player_state.at("energy").get<energy_t>();
         player.health = player_state.at("health").get<health_t>();
         player.turns_protected = player_state.at("activeIronCurtainLifetime").get<int8_t>() + 1;
+        player.iron_curtain_available = player_state.at("ironCurtainAvailable").get<bool>();
     }
 
     inline uint8_t position_from_row_and_col(uint8_t row, uint8_t col) {
@@ -77,13 +79,13 @@ namespace bot {
             if (construction_time_left > -1) {
                 return &(player.attack_building_queue);
             } else {
-                uint8_t weapon_cooldown_time = 
+                uint8_t weapon_cooldown_time =
                     building.at("weaponCooldownTimeLeft").get<uint8_t>();
                 return &(player.attack_buildings[(current_turn + (weapon_cooldown_time & 3)) & 3]);
             }
         } else if (building_type == "DEFENSE") {
             if (construction_time_left > -1) {
-                return &(player.defence_building_queue[((construction_time_left - 3) 
+                return &(player.defence_building_queue[((construction_time_left - 3)
                                                         + current_turn) % 3]);
             } else {
                 return player.defence_buildings;
@@ -97,21 +99,21 @@ namespace bot {
         }
     }
 
-    inline tesla_tower_t make_tesla_tower(uint16_t construction_time_left, 
+    inline tesla_tower_t make_tesla_tower(uint16_t construction_time_left,
                                           uint8_t weapon_cooldown_time_left,
                                           uint8_t position) {
         return (weapon_cooldown_time_left << 24) | (position << 16) | construction_time_left;
     }
 
-    void add_to_player_buildings(std::vector<json>& buildings, 
-                                 player_t& player, 
+    void add_to_player_buildings(std::vector<json>& buildings,
+                                 player_t& player,
                                  uint16_t current_turn) {
         for (auto building = buildings.begin(); building != buildings.end(); building++) {
             json j = *building;
             uint32_t row = j.at("y").get<int>();
             uint32_t col = j.at("x").get<int>();
             building_positions_t new_building = entity_from_coordinate(row, col);
-            uint64_t* place_to_put_building = 
+            uint64_t* place_to_put_building =
                 find_where_to_put_building(current_turn, player, j);
             int16_t construction_time_left = j.at("constructionTimeLeft").get<int16_t>();
             std::string building_type = j.at("buildingType").get<std::string>();
@@ -122,7 +124,7 @@ namespace bot {
                 }
             } else if (building_type == "TESLA") {
                 uint64_t position = position_from_row_and_col(row, col);
-                uint64_t weapon_cooldown_time_left = 
+                uint64_t weapon_cooldown_time_left =
                     j.at("weaponCooldownTimeLeft").get<uint64_t>();
                 (*place_to_put_building) = make_tesla_tower(construction_time_left,
                                                             weapon_cooldown_time_left,
@@ -166,14 +168,14 @@ namespace bot {
         tesla_tower_t tesla_tower2 = player.tesla_towers[1];
         int16_t construction_time_left2 = get_construction_time_left(tesla_tower2);
         uint8_t position2 = get_tesla_tower_position(tesla_tower2);
-        constructed |= (building_positions_t) ((tesla_tower2 > 0) 
+        constructed |= (building_positions_t) ((tesla_tower2 > 0)
                                                & (construction_time_left2 < 0)) << position2;
 
         return constructed;
     }
 
     inline building_positions_t find_occupied(player_t& player) {
-        building_positions_t occupied = player.energy_buildings 
+        building_positions_t occupied = player.energy_buildings
             | player.energy_building_queue
             | player.attack_building_queue;
         for (uint8_t i = 0; i < 4; i++) {
@@ -188,7 +190,7 @@ namespace bot {
         tesla_tower_t tesla_tower1 = player.tesla_towers[0];
         uint8_t tesla_tower_position1 = get_tesla_tower_position(tesla_tower1);
         occupied |= (building_positions_t) (tesla_tower1 > 0) << tesla_tower_position1;
- 
+
         tesla_tower_t tesla_tower2 = player.tesla_towers[1];
         uint8_t tesla_tower_position2 = get_tesla_tower_position(tesla_tower2);
         occupied |= (building_positions_t) (tesla_tower2 > 0) << tesla_tower_position2;
@@ -238,7 +240,7 @@ namespace bot {
     }
 
     inline building_positions_t determine_attacked_buildings(player_t& player,
-                                                             player_t& enemy, 
+                                                             player_t& enemy,
                                                              tesla_tower_t tesla_tower) {
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
@@ -254,7 +256,7 @@ namespace bot {
         middle_row ^= (middle_row & upper_row);
         uint64_t lower_row = (get_tesla_attack_row(constructed, lower_coordinate) & hit_mask);
         lower_row ^= (lower_row & (middle_row | upper_row));
-        building_positions_t attacked_buildings = (upper_row << (upper_coordinate << 3)) 
+        building_positions_t attacked_buildings = (upper_row << (upper_coordinate << 3))
             | (middle_row << (row << 3)) | (lower_row << (lower_coordinate << 3));
         return (((tesla_tower == 0) | (construction_time_left > -1)
                  | (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & attacked_buildings;
@@ -272,7 +274,7 @@ namespace bot {
         tesla_tower_t tesla_tower = player.tesla_towers[tesla_index];
         uint16_t construction_time_left = get_construction_time_left(tesla_tower);
         tesla_tower ^= construction_time_left;
-        uint16_t new_construction_time_left = (((tesla_tower == 0) - 1) 
+        uint16_t new_construction_time_left = (((tesla_tower == 0) - 1)
                                                & (construction_time_left - 1));
         tesla_tower |= new_construction_time_left;
         player.tesla_towers[tesla_index] = tesla_tower;
@@ -280,14 +282,14 @@ namespace bot {
 
     inline uint64_t fire_from_tesla_tower(player_t& player, player_t& enemy, uint8_t tesla_index) {
         uint64_t tesla_tower = player.tesla_towers[tesla_index];
-        building_positions_t attacked_buildings = 
+        building_positions_t attacked_buildings =
             determine_attacked_buildings(player, enemy, tesla_tower);
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-        set_tesla_tower_cooldown(player, tesla_index);   
+        set_tesla_tower_cooldown(player, tesla_index);
 
         energy_t energy = player.energy;
-        uint64_t didnt_fire = ((construction_time_left > -1) | 
+        uint64_t didnt_fire = ((construction_time_left > -1) |
                           (weapon_cooldown_time_left > 0) | (energy < 100));
 
         harm_enemy(tesla_tower, player, enemy);
@@ -320,7 +322,7 @@ namespace bot {
                                 player_t& a,
                                 player_t& b) {
         uint8_t missiles_offset = 0;
-        for (auto missile = missiles.begin(); missile != missiles.end(); 
+        for (auto missile = missiles.begin(); missile != missiles.end();
              missile++, missiles_offset++) {
             json j = *missile;
             uint8_t row = j.at("y").get<uint8_t>();
@@ -337,7 +339,7 @@ namespace bot {
         uint64_t tesla_tower_1 = player.tesla_towers[0];
         uint64_t tesla_tower_2 = player.tesla_towers[1];
         if (tesla_tower_1 && tesla_tower_2) {
-            if (get_construction_time_left(tesla_tower_1) > 
+            if (get_construction_time_left(tesla_tower_1) >
                 get_construction_time_left(tesla_tower_2)) {
 
                 player.tesla_towers[0] = tesla_tower_2;
@@ -356,8 +358,8 @@ namespace bot {
                 json j = *c;
                 player_t& player = j.at("cellOwner").get<std::string>() == "A" ? a : b;
                 std::vector<json> buildings = j.at("buildings").get<std::vector<json>>();
-                add_to_player_buildings(buildings, 
-                                        player, 
+                add_to_player_buildings(buildings,
+                                        player,
                                         current_turn);
                 std::vector<json> missiles = j.at("missiles").get<std::vector<json>>();
                 add_to_player_missiles(missiles, a, b);
@@ -406,14 +408,14 @@ namespace bot {
 
     const uint64_t first_zeros_mask = ~enemy_hits_mask;
 
-    inline void move_current_missiles(uint8_t offset, 
+    inline void move_current_missiles(uint8_t offset,
                                       player_t& player,
                                       player_t& enemy) {
         uint64_t player_half_missiles = player.player_missiles[offset];
-        player.enemy_half_missiles[offset] = 
-            (player_half_missiles & leading_column_mask & -(enemy.turns_protected == 0)) | 
+        player.enemy_half_missiles[offset] =
+            (player_half_missiles & leading_column_mask & -(enemy.turns_protected == 0)) |
             ((player.enemy_half_missiles[offset] & first_zeros_mask) >> 1);
-        player.player_missiles[offset] = first_zeros_mask & 
+        player.player_missiles[offset] = first_zeros_mask &
             (player_half_missiles << 1);
     }
 
@@ -428,7 +430,7 @@ namespace bot {
         move_current_missiles(3, b, a);
     }
 
-    inline void collide_current_missiles(player_t& player, 
+    inline void collide_current_missiles(player_t& player,
                                          player_t& enemy,
                                          uint8_t missiles_offset) {
         building_positions_t enemy_missiles = enemy.enemy_half_missiles[missiles_offset];
@@ -478,7 +480,7 @@ namespace bot {
         return (n + (n >> 32)) & 0x7F;
     }
 
-    inline uint64_t max_zero(uint64_t a) { 
+    inline uint64_t max_zero(uint64_t a) {
         return a & ((~a) >> 63);
     }
 
@@ -486,7 +488,7 @@ namespace bot {
         return 64 - count_set_bits(n);
     }
 
-    inline void harm_enemy_with_current_missiles(player_t& player, 
+    inline void harm_enemy_with_current_missiles(player_t& player,
                                                  player_t& enemy,
                                                  uint8_t offset) {
         uint8_t collision_count = count_set_bits(
@@ -517,15 +519,15 @@ namespace bot {
         f -= ((e - i) & 256) >> 4;
         i -= e & ((e - i) >> 8);
         e = (c >> (f - 8)) & 0xF;
-        
+
         f -= ((e - i) & 256) >> 5;
         i -= e & ((e - i) >> 8);
         e = (b >> (f - 4)) & 0x7;
-        
+
         f -= ((e - i) & 256) >> 6;
         i -= e & ((e - i) >> 8);
         e = (a >> (f - 2)) & 0x3;
-        
+
         f -= ((e - i) & 256) >> 7;
         i -= e & ((e - i) >> 8);
         e = (n >> (f - 1)) & 0x1;
@@ -534,7 +536,7 @@ namespace bot {
         return 65 - f;
     }
 
-    inline uint16_t select_position(std::mt19937& mt, 
+    inline uint16_t select_position(std::mt19937& mt,
                                     building_positions_t occupied) {
         uint8_t zero_bits = count_zero_bits(occupied);
         uint8_t selected_position = mt() % zero_bits;
@@ -549,7 +551,7 @@ namespace bot {
         player.energy_building_queue |= new_building;
     }
 
-    inline void queue_defence_building(building_positions_t new_building, 
+    inline void queue_defence_building(building_positions_t new_building,
                                        player_t& player,
                                        uint16_t current_turn) {
         player.defence_building_queue[current_turn % 3] |= new_building;
@@ -583,9 +585,9 @@ namespace bot {
         player.player_missiles[offset] |= player.attack_buildings[offset];
     }
 
-    inline void queue_building(uint8_t position, 
+    inline void queue_building(uint8_t position,
                                uint8_t building_num,
-                               player_t& player, 
+                               player_t& player,
                                uint8_t current_turn) {
         building_positions_t new_building = (building_positions_t)1 << position;
         switch (building_num) {
@@ -644,7 +646,7 @@ namespace bot {
     }
 
     inline void make_move(uint16_t move, player_t& player, uint16_t current_turn) {
-        if (move > 0) queue_building(get_position(move), get_building_num(move), 
+        if (move > 0) queue_building(get_position(move), get_building_num(move),
                                      player, current_turn);
     }
 
@@ -727,7 +729,7 @@ namespace bot {
         }
     }
 
-    inline void mc_search(board_t& initial, board_t& search_board, 
+    inline void mc_search(board_t& initial, board_t& search_board,
                           std::atomic<uint32_t>* move_scores,
                           std::atomic<bool>& stop_search,
                           uint16_t current_turn) {
@@ -750,7 +752,7 @@ namespace bot {
         }
     }
 
-    void write_command_to_file(uint8_t row, 
+    void write_command_to_file(uint8_t row,
                                uint8_t col,
                                uint8_t building_num) {
         std::ofstream command_output("command.txt", std::ios::out);
@@ -758,8 +760,8 @@ namespace bot {
         if (command_output.is_open()) {
             if (building_num > 0) {
                 building_num = building_num > 3 ? building_num + 1 : building_num;
-                command_output << (int)col << "," << (int)row << "," << 
-                    (int)(building_num - 1) << 
+                command_output << (int)col << "," << (int)row << "," <<
+                    (int)(building_num - 1) <<
                     std::endl << std::flush;
             } else {
                 command_output << std::endl << std::flush;
@@ -769,25 +771,25 @@ namespace bot {
     }
 
     inline void find_best_move(game_state_t& game_state, uint16_t current_turn) {
-        
+
         game_state.stop_search.store(false);
 
-        std::thread search1(mc_search, std::ref(game_state.initial), 
+        std::thread search1(mc_search, std::ref(game_state.initial),
                             std::ref(game_state.search1),
                             game_state.move_scores,
                             std::ref(game_state.stop_search),
                             current_turn);
-        std::thread search2(mc_search, std::ref(game_state.initial), 
+        std::thread search2(mc_search, std::ref(game_state.initial),
                             std::ref(game_state.search2),
                             game_state.move_scores,
                             std::ref(game_state.stop_search),
                             current_turn);
-        std::thread search3(mc_search, std::ref(game_state.initial), 
+        std::thread search3(mc_search, std::ref(game_state.initial),
                             std::ref(game_state.search3),
                             game_state.move_scores,
                             std::ref(game_state.stop_search),
                             current_turn);
-        std::thread search4(mc_search, std::ref(game_state.initial), 
+        std::thread search4(mc_search, std::ref(game_state.initial),
                             std::ref(game_state.search4),
                             game_state.move_scores,
                             std::ref(game_state.stop_search),
@@ -795,7 +797,7 @@ namespace bot {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1950));
         game_state.stop_search.store(true);
-        
+
         std::atomic<uint32_t>* move_scores = game_state.move_scores;
 
         uint64_t best_wins = 0;
@@ -847,7 +849,7 @@ namespace bot {
         }
         return -1;
     }
-    
+
     void move_and_write_to_file() {
         game_state_t game_state;
         std::string state_path("state.json");
