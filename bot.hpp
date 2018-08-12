@@ -607,33 +607,48 @@ namespace bot {
             tesla_tower_t new_tesla_tower = make_tesla_tower(9, 0, position);
             tesla_tower_t original_tower = player.tesla_towers[0];
             player.tesla_towers[0] |= -(original_tower == 0) & new_tesla_tower;
-            player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0)) 
+            player.tesla_towers[1] |= -((original_tower > 0) & (player.tesla_towers[1] == 0))
                 & new_tesla_tower;
             player.energy -= 100;
             break;
         }
         case 5:
             player.turns_protected = 6;
+            player.iron_curtain_available = false;
             player.energy -= 100;
             break;
         }
     }
 
+    inline uint8_t mod3(uint64_t n) {
+        uint64_t m;
+        for (m = n; n > 3; n = m) {
+            for (m = 0; n; n >>= 2) {
+                m += n & 3;
+            }
+        }
+        return m == 3 ? 0 : m;
+    }
+
     inline uint16_t select_move(std::mt19937& mt,
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
-        uint16_t position = 0;     
+        uint16_t position = 0;
         if (occupied == max_u_int_64) {
             return 0;
         } else if (player.energy > 19 && player.energy < 30) {
             position = select_position(mt, occupied);
-            return 3 | (position << 3);
-        } else if (player.energy > 29) {
+            uint8_t selection = mt() & 1;
+            return ((selection << 2) - selection) | (position << 3);
+        } else if (player.energy < 100) {
             position = select_position(mt, occupied);
-            uint8_t building_num = (mt() % 3) + 1;
-            return building_num | (position << 3);
+            return mod4(mt()) | (position << 3);
+        } else if (!player.iron_curtain_available) {
+            position = select_position(mt, occupied);
+            return (mt() % 5) | (position << 3);
         } else {
-            return 0;
+            position = select_position(mt, occupied);
+            return ((mt() % 5) + 1) | (position << 3);
         }
     }
 
@@ -691,11 +706,19 @@ namespace bot {
         player.turns_protected -= (player.turns_protected > 0);
     }
 
-    inline void advance_state(uint16_t a_move, 
+    inline void set_iron_curtain_availability(player_t& a, 
+                                              player_t& b,
+                                              uint16_t current_turn) {
+        a.iron_curtain_available |= (current_turn % 30 == 0);
+        b.iron_curtain_available |= (current_turn % 30 == 0);
+    }
+
+    inline void advance_state(uint16_t a_move,
                               uint16_t b_move,
-                              player_t& a, 
+                              player_t& a,
                               player_t& b,
                               uint16_t current_turn) {
+        set_iron_curtain_availability(a, b, current_turn);
         decrement_tesla_towers_construction_time_left(a);
         decrement_tesla_towers_construction_time_left(b);
         build_buildings(a, current_turn);
