@@ -305,7 +305,7 @@ namespace bot {
         if (player.tesla_towers[0]) {
             building_positions_t attacked_buildings = fire_from_tesla_tower(player, enemy, 0);
             attacked_buildings |= fire_from_tesla_tower(player, enemy, 1);
-            return attacked_buildings & -(enemy.turns_protected == 0);
+            return attacked_buildings & -(enemy.turns_protected < 1);
         }
         return 0;
     }
@@ -413,7 +413,7 @@ namespace bot {
                                       player_t& enemy) {
         uint64_t player_half_missiles = player.player_missiles[offset];
         player.enemy_half_missiles[offset] =
-            (player_half_missiles & leading_column_mask & -(enemy.turns_protected == 0)) |
+            (player_half_missiles & leading_column_mask & -(enemy.turns_protected < 1)) |
             ((player.enemy_half_missiles[offset] & first_zeros_mask) >> 1);
         player.player_missiles[offset] = first_zeros_mask &
             (player_half_missiles << 1);
@@ -741,10 +741,12 @@ namespace bot {
             uint16_t initial_a_move = select_move(mt, a);
             uint16_t initial_b_move = select_move(mt, b);
             advance_state(initial_a_move, initial_b_move, a, b, current_turn);
+            current_turn++;
             while (a.health > 0 && b.health > 0 && current_turn < 400) {
                 uint16_t a_move = select_move(mt, a);
                 uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
+                current_turn++;
             }
             return initial_a_move;
         } else {
