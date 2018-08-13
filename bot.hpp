@@ -634,9 +634,9 @@ namespace bot {
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
         uint16_t position = 0;
-        if (occupied == max_u_int_64) {
+        if (occupied == max_u_int_64 || player.energy < 20) {
             return 0;
-        } else if (player.energy > 19 && player.energy < 30) {
+        } else if (player.energy < 30) {
             position = select_position(mt, occupied);
             uint8_t selection = mt() & 1;
             return ((selection << 2) - selection) | (position << 3);
@@ -741,7 +741,7 @@ namespace bot {
             uint16_t initial_a_move = select_move(mt, a);
             uint16_t initial_b_move = select_move(mt, b);
             advance_state(initial_a_move, initial_b_move, a, b, current_turn);
-            while (a.health > 0 && b.health > 0) {
+            while (a.health > 0 && b.health > 0 && current_turn < 400) {
                 uint16_t a_move = select_move(mt, a);
                 uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
@@ -768,7 +768,7 @@ namespace bot {
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
             if (b.health > 0) {
                 move_scores[index + 1]++;
-            } else {
+            } else if (a.health > 0) {
                 move_scores[index]++;
             }
             copy_board(initial, search_board);
@@ -834,7 +834,8 @@ namespace bot {
 
                 uint64_t wins = move_scores[index];
                 uint64_t losses = move_scores[index + 1];
-                if (best_wins == 0 || (wins * best_losses > best_wins * losses)) {
+                if (best_wins == 0 || ((wins - losses) * (best_losses + best_wins) >
+                                       (best_wins - best_losses) * (wins + losses))) {
                     best_wins = wins;
                     best_losses = losses;
                     best_building_num = index >> 7;
