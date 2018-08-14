@@ -765,7 +765,7 @@ namespace bot {
         copy_board(initial, search_board);
         while (!stop_search.compare_exchange_weak(done, done)) {
             done = true;
-            uint16_t first_move = first_move = simulate(mt, a, b, current_turn);
+            uint16_t first_move = simulate(mt, a, b, current_turn);
             sim_count++;
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
             if (b.health > 0) {
