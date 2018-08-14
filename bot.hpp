@@ -485,7 +485,7 @@ namespace bot {
     }
 
     inline uint8_t count_zero_bits(uint64_t n) {
-        return 64 - count_set_bits(n);
+        return 64 - __builtin_popcount(n);
     }
 
     inline void harm_enemy_with_current_missiles(player_t& player,
@@ -536,10 +536,10 @@ namespace bot {
         return 65 - f;
     }
 
-    inline uint16_t select_position(std::mt19937& mt,
-                                    building_positions_t occupied) {
+    inline uint16_t select_position(building_positions_t occupied,
+                                    uint8_t random_bits) {
         uint8_t zero_bits = count_zero_bits(occupied);
-        uint8_t selected_position = mt() % zero_bits;
+        uint8_t selected_position = random_bits % zero_bits;
         return 64 - select_ith_bit(~occupied, 1 + selected_position);
     }
 
@@ -634,21 +634,23 @@ namespace bot {
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
         uint16_t position = 0;
+        uint64_t random_bits = mt();
+        uint8_t building_num_bits = random_bits >> 8;
         if (occupied == max_u_int_64 || player.energy < 20) {
             return 0;
         } else if (player.energy < 30) {
-            position = select_position(mt, occupied);
-            uint8_t selection = mt() & 1;
+            position = select_position(occupied, random_bits);
+            uint8_t selection = building_num_bits & 1;
             return ((selection << 2) - selection) | (position << 3);
         } else if (player.energy < 100) {
-            position = select_position(mt, occupied);
+            position = select_position(occupied, random_bits);
             return mod4(mt()) | (position << 3);
         } else if (!player.iron_curtain_available) {
-            position = select_position(mt, occupied);
-            return (mt() % 5) | (position << 3);
+            position = select_position(occupied, random_bits);
+            return (building_num_bits % 5) | (position << 3);
         } else {
-            position = select_position(mt, occupied);
-            return ((mt() % 5) + 1) | (position << 3);
+            position = select_position(occupied, random_bits);
+            return ((building_num_bits % 5) + 1) | (position << 3);
         }
     }
 
