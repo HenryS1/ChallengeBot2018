@@ -394,7 +394,7 @@ namespace bot {
         board_t search2;
         board_t search3;
         board_t search4;
-        std::atomic<uint32_t> move_scores[512];
+        std::atomic<uint32_t> move_scores[768];
         std::atomic<bool> stop_search;
     };
 
@@ -485,7 +485,7 @@ namespace bot {
     }
 
     inline uint8_t count_zero_bits(uint64_t n) {
-        return 64 - __builtin_popcount(n);
+        return 64 - count_set_bits(n);
     }
 
     inline void harm_enemy_with_current_missiles(player_t& player,
@@ -832,7 +832,7 @@ namespace bot {
         uint8_t best_position = 0;
         uint8_t best_building_num = 0;
 
-        for (uint16_t i = 0; i < 256; i++) {
+        for (uint16_t i = 0; i < 384; i++) {
             uint16_t index = i << 1;
             if (move_scores[index] > 0) {
 
@@ -866,7 +866,7 @@ namespace bot {
         std::memset(&(game_state.search2), 0, sizeof(board));
         std::memset(&(game_state.search3), 0, sizeof(board));
         std::memset(&(game_state.search4), 0, sizeof(board));
-        for (int i = 0; i < 512; i++) {
+        for (int i = 0; i < 768; i++) {
             game_state.move_scores[i] = 0;
         }
         std::ifstream state_reader(state_path, std::ios::in);
