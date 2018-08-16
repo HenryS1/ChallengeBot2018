@@ -649,10 +649,10 @@ namespace bot {
             return (((mt() % 3) + 1) | (position << 3)) & -(mt() % 64 > 0);
         } else if (!player.iron_curtain_available) {
             position = select_position(occupied, random_bits);
-            return (building_num_bits % 5) | (position << 3);
+            return (((building_num_bits % 4) + 1) | (position << 3)) & -(mt() % 64 > 0);
         } else {
             position = select_position(occupied, random_bits);
-            return ((building_num_bits % 5) + 1) | (position << 3);
+            return (((building_num_bits % 5) + 1) | (position << 3));
         }
     }
 
@@ -746,7 +746,7 @@ namespace bot {
             uint16_t initial_b_move = select_move(mt, b);
             advance_state(initial_a_move, initial_b_move, a, b, current_turn);
             current_turn++;
-            while (a.health > 0 && b.health > 0 && current_turn < 101) {
+            while (a.health > 0 && b.health > 0 && current_turn < 150) {
                 uint16_t a_move = select_move(mt, a);
                 uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
@@ -774,12 +774,10 @@ namespace bot {
             uint16_t first_move = sim_result & 65535;
             sim_count++;
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
-            if (final_turn < 80 || current_turn > 40) {
-                if (b.health > 0) {
-                    move_scores[index + 1]++;
-                } else if (a.health > 0) {
-                    move_scores[index] += (final_turn > 40);
-                }
+            if (b.health > 0) {
+                move_scores[index + 1]++;
+            } else if (a.health > 0) {
+                move_scores[index] += (final_turn > 40) & (final_turn < 100 || current_turn > 50);
             }
             copy_board(initial, search_board);
         }

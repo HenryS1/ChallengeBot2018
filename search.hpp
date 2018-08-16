@@ -26,7 +26,12 @@ namespace bot {
     }
 
     struct tree_node {
+        uint16_t number_of_choices_a;
+        uint16_t number_of_choices_b;
         uint16_t number_of_choices;
+        uint64_t unoccupied_a;
+        uint64_t unoccupied_b;
+        uint8_t choice_mapping[12] = {0};
         tree_node** children;
         float* pdf;
         float* cdf;
@@ -34,7 +39,14 @@ namespace bot {
         float total_positive_regret = 0.0;
         float total_mass = 0.0;
 
-        tree_node(uint16_t number_of_choices, free_memory_t& free_memory) {
+        tree_node(player_t& a,
+                  player_t& b,
+                  free_memory_t& free_memory) {
+            set_move_mapping_and_choices(a, number_of_choices_a,
+                                         unoccupied_a, choice_mapping);
+            set_move_mapping_and_choices(b, number_of_choices_b,
+                                         unoccupied_b, &(choice_mapping[6]));
+            this->number_of_choices = number_of_choices_a * number_of_choices_b;
             float uniform_density = 1. / number_of_choices;
             children = (tree_node**)allocate_memory(free_memory,
                                                     number_of_choices * sizeof(tree_node*));
@@ -44,6 +56,34 @@ namespace bot {
             std::fill(pdf, pdf + number_of_choices, uniform_density);
             std::memset(cdf, 0, number_of_choices * sizeof(float));
             std::memset(positive_regret, 0, number_of_choices * sizeof(float));
+        }
+
+        void set_move_mapping_and_choices(player_t& player, 
+                                          uint16_t& number_of_choices,
+                                          uint64_t& unoccupied,
+                                          uint8_t* mapping_start) {
+            unoccupied = ~find_occupied(player);
+            if (player.energy < 20) {
+                number_of_choices = 1;
+            } else if (player.energy < 30) {
+                number_of_choices = 65;
+                mapping_start[0] = 0;
+                mapping_start[1] = 3;
+            } else if (player.energy < 100) {
+                number_of_choices = 1 + (64 * 3);
+                mapping_start[0] = 0;
+                mapping_start[1] = 1;
+                mapping_start[2] = 2;
+                mapping_start[3] = 3;
+                mapping_start[4] = 4;
+            } else if (!player.iron_curtain_available) {
+                number_of_choices = 64 * 5;
+                mapping_start[0] = 1;
+                mapping_start[1] = 2;
+                mapping_start[2] = 3;
+                mapping_start[3] = 4;
+                mapping_start[4] = 5;
+            } 
         }
 
     };
@@ -90,53 +130,56 @@ namespace bot {
         return mid + 1;
     }
 
-    // inline void update_node(tree_node_t& tree_node, float reward, uint16_t selection) {
-    //     update_regret(tree_node, reward, selection);
-    //     if (tree_node.total_positive_regret == 0) {
-    //         float value = 1. / number_of_choices;
-    //         std::fill(tree_node.pdf, tree_node.pdf + number_of_choices, value);
-    //     } else {
-    //         float* pdf = tree_node.pdf;
-    //         float gamma_over_k = gamma / number_of_choices;
-    //         for (int i = 0; i < number_of_choices; i++) {
-    //             pdf[i] = (1 - gamma)
-    //                 * (tree_node.positive_regret[i] 
-    //                    / tree_node.total_positive_regret) + gamma_over_k;
-    //         }
-    //     }
-    // }
+    inline void update_node(tree_node_t& tree_node, float reward, uint16_t selection) {
+        update_regret(tree_node, reward, selection);
+        if (tree_node.total_positive_regret == 0) {
+            float value = 1. / tree_node.number_of_choices;
+            std::fill(tree_node.pdf, tree_node.pdf + tree_node.number_of_choices, value);
+        } else {
+            float* pdf = tree_node.pdf;
+            float gamma_over_k = gamma / tree_node.number_of_choices;
+            for (int i = 0; i < tree_node.number_of_choices; i++) {
+                pdf[i] = (1 - gamma)
+                    * (tree_node.positive_regret[i] 
+                       / tree_node.total_positive_regret) + gamma_over_k;
+            }
+        }
+    }
 
     inline uint16_t select_index(std::mt19937& mt, tree_node_t& tree_node) {
         construct_cdf(tree_node);
         return sample(mt, tree_node);
     }
 
-    // tree_node_t* allocate_node(free_nodes_t& free_nodes) {
-    //     uint32_t free_index = free_nodes.free_index;
-    //     tree_node_t* node = &(free_nodes.nodes[free_index]);
-    //     free_nodes.free_index++;
-    //     return new (node) tree_node_t();
-    // }
-
-    // tree_node* sm_mcts(std::mt19937& mt,
-    //                    float& reward,
-    //                    tree_node_t* tree_node,
-    //                    free_nodes_t& free_nodes,
-    //                    board_t& board, 
-    //                    uint16_t current_turn) {
-    //     if (tree_node == nullptr) {
-    //         reward = simulate(mt, board.a, board.b, current_turn);
-    //         return allocate_node(free_nodes);
-    //     } else {
-    //         uint16_t index = select_index(mt, *tree_node);
-    //         return sm_mcts(mt, 
-    //                        reward, 
-    //                        tree_node->children[index], 
-    //                        free_nodes,
-    //                        board,
-    //                        current_turn + 1);
-    //     }
-    // }
+    tree_node_t* allocate_node(free_memory_t& free_memory, 
+                               board_t& board) {
+        tree_node_t* place = static_cast<tree_node*>(allocate_memory(free_memory,
+                                                                     sizeof(tree_node_t)));
+        return new (place) tree_node_t(board.a, board.b, free_memory);
+    }
+ 
+    tree_node_t* sm_mcts(std::mt19937& mt,
+                       float& reward,
+                       tree_node_t* tree_node,
+                       free_memory_t& free_memory,
+                       board_t& board, 
+                       uint16_t current_turn) {
+        if (tree_node == nullptr) {
+            reward = simulate(mt, board.a, board.b, current_turn);
+            return allocate_node(free_memory, board);
+        } else {
+            uint16_t index = select_index(mt, *tree_node);
+            uint16_t a_move = tree_node->decode_a_move(index);
+            uint16_t b_move = tree_node->decode_b_move(index);
+            advance_state(a_move, b_move, board.a, board.b, current_turn);
+            return sm_mcts(mt, 
+                           reward, 
+                           tree_node->children[index], 
+                           free_memory,
+                           board,
+                           current_turn + 1);
+        }
+    }
 
 }
 
