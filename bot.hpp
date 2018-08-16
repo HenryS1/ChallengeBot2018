@@ -642,7 +642,6 @@ namespace bot {
             return 0;
         } else if (player.energy < 30) {
             position = select_position(occupied, random_bits);
-            //uint8_t selection = building_num_bits & 1;
             return (3 | (position << 3)) & -(mt() % 64 > 0);
         } else if (player.energy < 100) {
             position = select_position(occupied, random_bits);
@@ -742,11 +741,12 @@ namespace bot {
 
     inline uint32_t simulate(std::mt19937& mt, player_t& a, player_t& b, uint16_t current_turn) {
         if (a.health > 0 && b.health > 0) {
+            uint16_t initial_turn = current_turn;
             uint16_t initial_a_move = select_move(mt, a);
             uint16_t initial_b_move = select_move(mt, b);
             advance_state(initial_a_move, initial_b_move, a, b, current_turn);
             current_turn++;
-            while (a.health > 0 && b.health > 0 && current_turn < 150) {
+            while (a.health > 0 && b.health > 0 && current_turn < initial_turn + 90) {
                 uint16_t a_move = select_move(mt, a);
                 uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
@@ -777,7 +777,8 @@ namespace bot {
             if (b.health > 0) {
                 move_scores[index + 1]++;
             } else if (a.health > 0) {
-                move_scores[index] += (final_turn > 40) & (final_turn < 100 || current_turn > 50);
+                move_scores[index] += (final_turn > 40)
+                    & (final_turn < (current_turn + 100));
             }
             copy_board(initial, search_board);
         }
