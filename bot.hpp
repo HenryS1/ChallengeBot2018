@@ -235,8 +235,10 @@ namespace bot {
         uint8_t col = get_tesla_tower_position(tesla_tower) & 7;
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-        enemy.health -= (((col < 7) | (construction_time_left > -1) | (enemy.turns_protected > 0) |
-                          (weapon_cooldown_time_left > 0) | (player.energy < 100)) - 1) & 20;
+        enemy.health = std::max(0, (((col < 7) | (construction_time_left > -1)
+                                     | (enemy.turns_protected > 0) |
+                                     (weapon_cooldown_time_left > 0) |
+                                     (player.energy < 100)) - 1) & 20);
     }
 
     inline building_positions_t determine_attacked_buildings(player_t& player,
@@ -634,17 +636,17 @@ namespace bot {
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
         uint16_t position = 0;
-        uint64_t random_bits = mt();
+        uint32_t random_bits = mt();
         uint8_t building_num_bits = random_bits >> 8;
         if (occupied == max_u_int_64 || player.energy < 20) {
             return 0;
         } else if (player.energy < 30) {
             position = select_position(occupied, random_bits);
-            uint8_t selection = building_num_bits & 1;
-            return ((selection << 2) - selection) | (position << 3);
+            //uint8_t selection = building_num_bits & 1;
+            return (3 | (position << 3)) & -(mt() % 64 > 0);
         } else if (player.energy < 100) {
             position = select_position(occupied, random_bits);
-            return mod4(mt()) | (position << 3);
+            return (((mt() % 3) + 1) | (position << 3)) & -(mt() % 64 > 0);
         } else if (!player.iron_curtain_available) {
             position = select_position(occupied, random_bits);
             return (building_num_bits % 5) | (position << 3);
@@ -738,19 +740,19 @@ namespace bot {
         decrement_turns_protected(b);
     }
 
-    inline uint16_t simulate(std::mt19937& mt, player_t& a, player_t& b, uint16_t current_turn) {
+    inline uint32_t simulate(std::mt19937& mt, player_t& a, player_t& b, uint16_t current_turn) {
         if (a.health > 0 && b.health > 0) {
             uint16_t initial_a_move = select_move(mt, a);
             uint16_t initial_b_move = select_move(mt, b);
             advance_state(initial_a_move, initial_b_move, a, b, current_turn);
             current_turn++;
-            while (a.health > 0 && b.health > 0 && current_turn < 400) {
+            while (a.health > 0 && b.health > 0 && current_turn < 101) {
                 uint16_t a_move = select_move(mt, a);
                 uint16_t b_move = select_move(mt, b);
                 advance_state(a_move, b_move, a, b, current_turn);
                 current_turn++;
             }
-            return initial_a_move;
+            return initial_a_move | (current_turn << 16);
         } else {
             return 0;
         }
@@ -767,13 +769,17 @@ namespace bot {
         copy_board(initial, search_board);
         while (!stop_search.compare_exchange_weak(done, done)) {
             done = true;
-            uint16_t first_move = simulate(mt, a, b, current_turn);
+            uint32_t sim_result = simulate(mt, a, b, current_turn);
+            uint16_t final_turn = sim_result >> 16;
+            uint16_t first_move = sim_result & 65535;
             sim_count++;
             uint16_t index = (get_building_num(first_move) << 7) | (get_position(first_move) << 1);
-            if (b.health > 0) {
-                move_scores[index + 1]++;
-            } else if (a.health > 0) {
-                move_scores[index]++;
+            if (final_turn < 80 || current_turn > 40) {
+                if (b.health > 0) {
+                    move_scores[index + 1]++;
+                } else if (a.health > 0) {
+                    move_scores[index] += (final_turn > 40);
+                }
             }
             copy_board(initial, search_board);
         }
