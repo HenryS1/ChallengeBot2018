@@ -258,6 +258,23 @@ namespace bot {
         return -1;
     }
 
+    void write_to_file(uint8_t row,
+                       uint8_t col,
+                       uint8_t building_num) {
+        std::ofstream command_output("command.txt", std::ios::out);
+        std::cout << "sim count " << sim_count << std::endl;
+        if (command_output.is_open()) {
+            if (building_num > 0) {
+                building_num = building_num > 3 ? building_num + 1 : building_num;
+                command_output << (int)col << "," << (int)row << "," <<
+                    (int)(building_num - 1) <<
+                    std::endl << std::flush;
+            } else {
+                command_output << std::endl << std::flush;
+            }
+            command_output.close();
+        }
+    }
 }
 
 
