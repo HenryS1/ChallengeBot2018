@@ -13,7 +13,7 @@ namespace bot {
     const float gamma = 0.05;
     //const float uniform_density = 1. / number_of_choices;
 
-    const uint32_t total_free_bytes = 10000000;
+    const uint32_t total_free_bytes = 100000000;
 
     struct free_memory {
         uint8_t buffer[total_free_bytes];
@@ -64,8 +64,22 @@ namespace bot {
             std::memset(positive_regret, 0, number_of_choices * sizeof(float));
         }
 
-        inline uint8_t locate_selection(uint16_t player_choice, uint64_t unoccupied) {
-            return 64 - select_ith_bit(unoccupied, player_choice);
+        inline uint16_t index_of_maximum_regret() {
+            uint16_t index_of_max = 0;
+            float max_regret = 0.;
+            for (uint16_t i = 0; i < number_of_choices; i++) {
+                float new_regret = positive_regret[i];
+                if (new_regret > max_regret) {
+                    max_regret = new_regret;
+                    index_of_max = i;
+                }
+            }
+            return index_of_max;
+        }
+
+        inline uint8_t calculate_selected_position(uint16_t normalized_choice,
+                                                   uint64_t unoccupied) {
+            return 64 - select_ith_bit(unoccupied, normalized_choice);
         }
 
         inline uint16_t decode_move(uint16_t player_choice, 
@@ -76,13 +90,12 @@ namespace bot {
             if (player_choice == 0) { 
                 return 0;
             } else if (number_of_player_choices == available + 1) {
-                return 3 | (64 - select_ith_bit(unoccupied, player_choice));
+                return 3 | calculate_selected_position(player_choice, unoccupied);
             } else {
                 uint8_t building_num = ((player_choice - 1) / available) + 1;
-                return building_num | (64 - select_ith_bit(unoccupied,
-                                                           (player_choice - 1) % available));
+                uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
+                return building_num | calculate_selected_position(normalized_choice, unoccupied);
             }
-            
         }
 
         inline uint16_t decode_a_move(uint16_t player_choice) {
@@ -178,7 +191,7 @@ namespace bot {
     }
 
     inline tree_node_t* allocate_node(free_memory_t& free_memory, 
-                               board_t& board) {
+                                      board_t& board) {
         tree_node_t* place = static_cast<tree_node*>(allocate_memory(free_memory,
                                                                      sizeof(tree_node_t)));
         return new (place) tree_node_t(board.a, board.b, free_memory);
@@ -190,11 +203,11 @@ namespace bot {
     }
 
     tree_node_t* sm_mcts(std::mt19937& mt,
-                       float& reward,
-                       tree_node_t* tree_node,
-                       free_memory_t& free_memory,
-                       board_t& board, 
-                       uint16_t current_turn) {
+                         float& reward,
+                         tree_node_t* tree_node,
+                         free_memory_t& free_memory,
+                         board_t& board, 
+                         uint16_t current_turn) {
         if (tree_node == nullptr) {
             tree_node_t* result = allocate_node(free_memory, board);
             uint32_t index = select_index(mt, *result);
@@ -218,6 +231,22 @@ namespace bot {
             update_node(*tree_node, reward, index);
             return tree_node;
         }
+    }
+
+    inline uint16_t mcts_choose_move(board_t& initial_board, uint16_t current_turn) {
+        std::mt19937 mt;
+        std::unique_ptr<free_memory_t> memory(new free_memory());
+        tree_node_t* root = allocate_node(*memory, initial_board);
+        uint32_t iterations = 0;
+        float reward = 0.;
+        while (iterations < 1000) {
+            board_t board_copy;
+            copy_board(initial_board, board_copy);
+            sm_mcts(mt, reward, root, *memory, board_copy, current_turn);
+            iterations++;
+        }
+        uint16_t index_of_max_regret = root->index_of_maximum_regret();
+        return root->decode_a_move(index_of_max_regret);
     }
 
 }
