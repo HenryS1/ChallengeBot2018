@@ -10,24 +10,28 @@
 namespace bot {
     
     const float gamma = 0.05;
-    const uint32_t total_free_bytes = 100000000;
+    #define TOTAL_FREE_BYTES 100000000
 
+    template <int N>
     struct free_memory {
-        uint8_t buffer[total_free_bytes];
+        uint8_t buffer[N];
         uint32_t free_index = 0;
+        free_memory() {
+            std::memset(buffer, 0, N);
+        }
     };
 
-    typedef struct free_memory free_memory_t;
+    free_memory<TOTAL_FREE_BYTES>* global_tree_buffer = nullptr;
 
-    free_memory_t* global_tree_buffer = nullptr;
-
-    void* allocate_memory(free_memory_t& free_memory, uint16_t bytes) {
+    template <int N>
+    void* allocate_memory(free_memory<N>& free_memory, uint16_t bytes) {
         void* buffer_block = &(free_memory.buffer[free_memory.free_index]);
         free_memory.free_index += bytes;
-        assert(free_memory.free_index < total_free_bytes);
+        assert(free_memory.free_index < TOTAL_FREE_BYTES);
         return buffer_block;
     }
 
+    template <int N>
     struct tree_node {
         uint16_t number_of_choices_a;
         uint16_t number_of_choices_b;
@@ -46,7 +50,9 @@ namespace bot {
 
         tree_node(player_t& a,
                   player_t& b,
-                  free_memory_t& free_memory) {
+                  free_memory<N>& free_memory) {
+            unoccupied_a = ~find_occupied(a);
+            unoccupied_b = ~find_occupied(b);
             available_a = count_set_bits(unoccupied_a);
             available_b = count_set_bits(unoccupied_b);
             set_move_mapping_and_choices(a, number_of_choices_a, available_a);
@@ -125,9 +131,8 @@ namespace bot {
 
     };
 
-    typedef struct tree_node tree_node_t;
-
-    inline void update_regret(tree_node_t& tree_node, float reward, uint16_t selection) {
+    template <int N>
+    inline void update_regret(tree_node<N>& tree_node, float reward, uint16_t selection) {
         tree_node.total_positive_regret -= 
             std::max(0., (double)(tree_node.total_positive_regret - (768 * reward)));
         float regret_update_value = reward / tree_node.pdf[selection];
@@ -135,7 +140,8 @@ namespace bot {
         tree_node.positive_regret[selection] += regret_update_value;
     }
 
-    inline void construct_cdf(tree_node_t& tree_node) {
+    template <int N>
+    inline void construct_cdf(tree_node<N>& tree_node) {
         tree_node.cdf[0] = tree_node.pdf[0];
         for (uint32_t i = 1; i < tree_node.number_of_choices; i++) {
             tree_node.cdf[i] = tree_node.pdf[i] + tree_node.cdf[i - 1];
@@ -143,7 +149,8 @@ namespace bot {
         tree_node.total_mass = tree_node.cdf[tree_node.number_of_choices - 1];
     }
 
-    inline uint32_t sample(std::mt19937& mt, tree_node_t& tree_node) {
+    template <int N>
+    inline uint32_t sample(std::mt19937& mt, tree_node<N>& tree_node) {
         uint32_t selection = mt() % (uint32_t) tree_node.total_mass;
         uint16_t bottom = 0, top = tree_node.number_of_choices - 1, 
             mid = tree_node.number_of_choices / 2;
@@ -167,7 +174,8 @@ namespace bot {
         return mid + 1;
     }
 
-    inline void update_node(tree_node_t& tree_node, float reward, uint16_t selection) {
+    template <int N>
+    inline void update_node(tree_node<N>& tree_node, float reward, uint16_t selection) {
         if (reward != 0) {
             update_regret(tree_node, reward, selection);
             if (tree_node.total_positive_regret == 0) {
@@ -185,16 +193,18 @@ namespace bot {
         }
     }
 
-    inline uint32_t select_index(std::mt19937& mt, tree_node_t& tree_node) {
+    template <int N>
+    inline uint32_t select_index(std::mt19937& mt, tree_node<N>& tree_node) {
         construct_cdf(tree_node);
         return sample(mt, tree_node);
     }
 
-    inline tree_node_t* allocate_node(free_memory_t& free_memory, 
+    template <int N>
+    inline tree_node<N>* allocate_node(free_memory<N>& free_memory, 
                                       board_t& board) {
-        tree_node_t* place = static_cast<tree_node*>(allocate_memory(free_memory,
-                                                                     sizeof(tree_node_t)));
-        return new (place) tree_node_t(board.a, board.b, free_memory);
+        tree_node<N>* place = static_cast<tree_node<N>*>(allocate_memory(free_memory,
+                                                                     sizeof(tree_node<N>)));
+        return new (place) tree_node<N>(board.a, board.b, free_memory);
     }
  
     inline float calculate_reward(player_t& a) {
@@ -202,14 +212,15 @@ namespace bot {
         else return 1.;
     }
 
-    tree_node_t* sm_mcts(std::mt19937& mt,
+    template <int N>
+    tree_node<N>* sm_mcts(std::mt19937& mt,
                          float& reward,
-                         tree_node_t* tree_node,
-                         free_memory_t& free_memory,
+                         tree_node<N>* tn,
+                         free_memory<N>& free_memory,
                          board_t& board, 
                          uint16_t current_turn) {
-        if (tree_node == nullptr) {
-            tree_node_t* result = allocate_node(free_memory, board);
+        if (tn == nullptr) {
+            tree_node<N>* result = allocate_node(free_memory, board);
             uint32_t index = select_index(mt, *result);
             uint16_t a_move = result->decode_a_move(index % result->number_of_choices_a);
             uint16_t b_move = result->decode_b_move(index / result->number_of_choices_a);
@@ -218,25 +229,26 @@ namespace bot {
             update_node(*result, reward, index);
             return result;
         } else {
-            uint32_t index = select_index(mt, *tree_node);
-            uint16_t a_move = tree_node->decode_a_move(index % tree_node->number_of_choices_a);
-            uint16_t b_move = tree_node->decode_b_move(index / tree_node->number_of_choices_a);
+            uint32_t index = select_index(mt, *tn);
+            uint16_t a_move = tn->decode_a_move(index % tn->number_of_choices_a);
+            uint16_t b_move = tn->decode_b_move(index / tn->number_of_choices_a);
             advance_state(a_move, b_move, board.a, board.b, current_turn);
-            tree_node->children[index] = sm_mcts(mt, 
+            tn->children[index] = sm_mcts(mt, 
                                                  reward, 
-                                                 tree_node->children[index], 
+                                                 tn->children[index], 
                                                  free_memory,
                                                  board,
                                                  current_turn + 1);
-            update_node(*tree_node, reward, index);
-            return tree_node;
+            update_node(*tn, reward, index);
+            return tn;
         }
     }
 
+    template <int N>
     inline uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
         std::mt19937 mt;
-        std::unique_ptr<free_memory_t> memory(new free_memory());
-        tree_node_t* root = allocate_node(*memory, initial_board);
+        std::unique_ptr<free_memory<N>> memory(new free_memory<N>());
+        tree_node<N>* root = allocate_node(*memory, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
         while (iterations < 1000) {
@@ -283,7 +295,7 @@ namespace bot {
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
         if (current_turn != (uint16_t) -1) {
-            uint16_t move = mcts_find_best_move(board, current_turn);
+            uint16_t move = mcts_find_best_move<TOTAL_FREE_BYTES>(board, current_turn);
             uint8_t position = move >> 3;
             uint8_t building_num = move & 7;
             uint8_t row = position >> 3;
