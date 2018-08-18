@@ -87,11 +87,12 @@ namespace bot {
             if (player_choice == 0) { 
                 return 0;
             } else if (number_of_player_choices == available + 1) {
-                return 3 | calculate_selected_position(player_choice, unoccupied);
+                return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
             } else {
                 uint8_t building_num = ((player_choice - 1) / available) + 1;
                 uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
-                return building_num | calculate_selected_position(normalized_choice, unoccupied);
+                return building_num | 
+                    (calculate_selected_position(normalized_choice, unoccupied) << 3);
             }
         }
 
