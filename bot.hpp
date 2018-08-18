@@ -235,10 +235,10 @@ namespace bot {
         uint8_t col = get_tesla_tower_position(tesla_tower) & 7;
         int16_t construction_time_left = get_construction_time_left(tesla_tower);
         uint8_t weapon_cooldown_time_left = get_weapon_cooldown_time_left(tesla_tower);
-        enemy.health = std::max(0, (((col < 7) | (construction_time_left > -1)
+        enemy.health = std::max(0, enemy.health - ((((col < 7) | (construction_time_left > -1)
                                      | (enemy.turns_protected > 0) |
                                      (weapon_cooldown_time_left > 0) |
-                                     (player.energy < 100)) - 1) & 20);
+                                     (player.energy < 100)) - 1) & 20));
     }
 
     inline building_positions_t determine_attacked_buildings(player_t& player,
