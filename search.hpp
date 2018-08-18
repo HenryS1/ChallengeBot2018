@@ -184,6 +184,11 @@ namespace bot {
         return new (place) tree_node_t(board.a, board.b, free_memory);
     }
  
+    inline float calculate_reward(player_t& a) {
+        if (a.health == 0) return -1.;
+        else return 1.;
+    }
+
     tree_node_t* sm_mcts(std::mt19937& mt,
                        float& reward,
                        tree_node_t* tree_node,
@@ -191,8 +196,13 @@ namespace bot {
                        board_t& board, 
                        uint16_t current_turn) {
         if (tree_node == nullptr) {
-            reward = simulate(mt, board.a, board.b, current_turn);
             tree_node_t* result = allocate_node(free_memory, board);
+            uint32_t index = select_index(mt, *result);
+            uint16_t a_move = result->decode_a_move(index % result->number_of_choices_a);
+            uint16_t b_move = result->decode_b_move(index / result->number_of_choices_a);
+            simulate(mt, board.a, board.b, a_move, b_move, current_turn);
+            reward = calculate_reward(board.a);
+            update_node(*result, reward, index);
             return result;
         } else {
             uint32_t index = select_index(mt, *tree_node);
@@ -205,6 +215,7 @@ namespace bot {
                                                  free_memory,
                                                  board,
                                                  current_turn + 1);
+            update_node(*tree_node, reward, index);
             return tree_node;
         }
     }
