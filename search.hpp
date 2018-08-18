@@ -247,6 +247,17 @@ namespace bot {
         return root->decode_a_move(index_of_max_regret);
     }
 
+    uint16_t read_board(board_t& board, std::string& state_path) {
+        std::memset(&board, 0, sizeof(board));
+        std::ifstream state_reader(state_path, std::ios::in);
+        if (state_reader.is_open()) {
+            json game_state_json;
+            state_reader >> game_state_json;
+            return read_from_state(board.a, board.b, game_state_json);
+        }
+        return -1;
+    }
+
 }
 
 
