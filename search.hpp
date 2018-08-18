@@ -2,6 +2,7 @@
 #define SEARCH_H
 
 #include "bot.hpp"
+#include <assert.h>
 #include <stdint.h>
 #include <algorithm>
 #include <random>
@@ -12,8 +13,10 @@ namespace bot {
     const float gamma = 0.05;
     //const float uniform_density = 1. / number_of_choices;
 
+    const uint32_t total_free_bytes = 10000000;
+
     struct free_memory {
-        uint8_t buffer[10000000];
+        uint8_t buffer[total_free_bytes];
         uint32_t free_index = 0;
     };
 
@@ -22,6 +25,7 @@ namespace bot {
     void* allocate_memory(free_memory_t& free_memory, uint16_t bytes) {
         void* buffer_block = &(free_memory.buffer[free_memory.free_index]);
         free_memory.free_index += bytes;
+        assert(free_memory.free_index < total_free_bytes);
         return buffer_block;
     }
 
@@ -60,37 +64,38 @@ namespace bot {
             std::memset(positive_regret, 0, number_of_choices * sizeof(float));
         }
 
+        inline uint8_t locate_selection(uint16_t player_choice, uint64_t unoccupied) {
+            return 64 - select_ith_bit(unoccupied, player_choice);
+        }
+
         inline uint16_t decode_move(uint16_t player_choice, 
                                     uint8_t available,
+                                    uint64_t unoccupied,
                                     uint16_t number_of_player_choices) {
 
-            if (available == 0) { 
-                return 0;
-            } else if (number_of_player_choices == 1 && player_choice == 0) {
+            if (player_choice == 0) { 
                 return 0;
             } else if (number_of_player_choices == available + 1) {
-                return (player_choice * 3) & -(player_choice < available);
-            } else if (number_of_player_choices == 1 + (available * 3)) {
-                return (player_choice * 3) & (player_choice < (available * 3));
-            } else if (number_of_player_choices == 1 + (available * 4)) {
-                return (player_choice * 4) & (player_choice < (available * 4));
+                return 3 | (64 - select_ith_bit(unoccupied, player_choice));
             } else {
-                return available * 5;
+                uint8_t building_num = ((player_choice - 1) / available) + 1;
+                return building_num | (64 - select_ith_bit(unoccupied,
+                                                           (player_choice - 1) % available));
             }
-
+            
         }
 
         inline uint16_t decode_a_move(uint16_t player_choice) {
-            return decode_move(player_choice, available_a, number_of_choices_a);
+            return decode_move(player_choice, available_a, unoccupied_a, number_of_choices_a);
         }
         
         inline uint16_t decode_b_move(uint16_t player_choice) {
-            return decode_move(player_choice, available_b, number_of_choices_b);
+            return decode_move(player_choice, available_b, unoccupied_b, number_of_choices_b);
         }
 
         inline void set_move_mapping_and_choices(player_t& player, 
-                                          uint16_t& number_of_choices,
-                                          uint8_t available) {
+                                                 uint16_t& number_of_choices,
+                                                 uint8_t available) {
             if (player.energy < 20) {
                 number_of_choices = 1;
             } else if (player.energy < 30) {
@@ -101,7 +106,7 @@ namespace bot {
             } else if (!player.iron_curtain_available) {
                 number_of_choices = (available * 4) + 1;
             } else {
-                number_of_choices = available * 5;
+                number_of_choices = (available * 5) + 1;
             }
         }
 
@@ -150,17 +155,19 @@ namespace bot {
     }
 
     inline void update_node(tree_node_t& tree_node, float reward, uint16_t selection) {
-        update_regret(tree_node, reward, selection);
-        if (tree_node.total_positive_regret == 0) {
-            float value = 1. / tree_node.number_of_choices;
-            std::fill(tree_node.pdf, tree_node.pdf + tree_node.number_of_choices, value);
-        } else {
-            float* pdf = tree_node.pdf;
-            float gamma_over_k = gamma / tree_node.number_of_choices;
-            for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-                pdf[i] = (1 - gamma)
-                    * (tree_node.positive_regret[i] 
-                       / tree_node.total_positive_regret) + gamma_over_k;
+        if (reward != 0) {
+            update_regret(tree_node, reward, selection);
+            if (tree_node.total_positive_regret == 0) {
+                float value = 1. / tree_node.number_of_choices;
+                std::fill(tree_node.pdf, tree_node.pdf + tree_node.number_of_choices, value);
+            } else {
+                float* pdf = tree_node.pdf;
+                float gamma_over_k = gamma / tree_node.number_of_choices;
+                for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
+                    pdf[i] = (1 - gamma)
+                        * (tree_node.positive_regret[i] 
+                           / tree_node.total_positive_regret) + gamma_over_k;
+                }
             }
         }
     }
@@ -170,7 +177,7 @@ namespace bot {
         return sample(mt, tree_node);
     }
 
-    tree_node_t* allocate_node(free_memory_t& free_memory, 
+    inline tree_node_t* allocate_node(free_memory_t& free_memory, 
                                board_t& board) {
         tree_node_t* place = static_cast<tree_node*>(allocate_memory(free_memory,
                                                                      sizeof(tree_node_t)));
@@ -185,18 +192,20 @@ namespace bot {
                        uint16_t current_turn) {
         if (tree_node == nullptr) {
             reward = simulate(mt, board.a, board.b, current_turn);
-            return allocate_node(free_memory, board);
+            tree_node_t* result = allocate_node(free_memory, board);
+            return result;
         } else {
             uint32_t index = select_index(mt, *tree_node);
-            uint16_t a_move = tree_node->decode_a_move(index & 65535);
-            uint16_t b_move = tree_node->decode_b_move(index >> 16);
+            uint16_t a_move = tree_node->decode_a_move(index % tree_node->number_of_choices_a);
+            uint16_t b_move = tree_node->decode_b_move(index / tree_node->number_of_choices_a);
             advance_state(a_move, b_move, board.a, board.b, current_turn);
-            return sm_mcts(mt, 
-                           reward, 
-                           tree_node->children[index], 
-                           free_memory,
-                           board,
-                           current_turn + 1);
+            tree_node->children[index] = sm_mcts(mt, 
+                                                 reward, 
+                                                 tree_node->children[index], 
+                                                 free_memory,
+                                                 board,
+                                                 current_turn + 1);
+            return tree_node;
         }
     }
 
