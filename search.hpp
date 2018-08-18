@@ -19,6 +19,8 @@ namespace bot {
 
     typedef struct free_memory free_memory_t;
 
+    free_memory_t* global_tree_buffer = nullptr;
+
     void* allocate_memory(free_memory_t& free_memory, uint16_t bytes) {
         void* buffer_block = &(free_memory.buffer[free_memory.free_index]);
         free_memory.free_index += bytes;
@@ -231,7 +233,7 @@ namespace bot {
         }
     }
 
-    inline uint16_t mcts_choose_move(board_t& initial_board, uint16_t current_turn) {
+    inline uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
         std::mt19937 mt;
         std::unique_ptr<free_memory_t> memory(new free_memory());
         tree_node_t* root = allocate_node(*memory, initial_board);
@@ -275,6 +277,21 @@ namespace bot {
             command_output.close();
         }
     }
+
+    void find_best_move_and_write_to_file()  {
+        board_t board;
+        std::string state_path("state.json");
+        uint16_t current_turn = read_board(board, state_path);
+        if (current_turn != (uint16_t) -1) {
+            uint16_t move = mcts_find_best_move(board, current_turn);
+            uint8_t position = move >> 3;
+            uint8_t building_num = move & 7;
+            uint8_t row = position >> 3;
+            uint8_t col = position & 8;
+            write_to_file(row, col, building_num);
+        }
+    }
+
 }
 
 
