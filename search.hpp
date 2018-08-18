@@ -9,10 +9,7 @@
 
 namespace bot {
     
-    //const int number_of_choices = 768;
     const float gamma = 0.05;
-    //const float uniform_density = 1. / number_of_choices;
-
     const uint32_t total_free_bytes = 100000000;
 
     struct free_memory {
