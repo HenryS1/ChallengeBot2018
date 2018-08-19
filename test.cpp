@@ -9,9 +9,11 @@ namespace bot {
     TEST(Initialisation, CreatesUniformDistribution) {
         board_t board;
         bot::read_board(board, state_path);
-        free_memory<200> memory;
-        tree_node<200> node(board.a, board.b, memory);
-        ASSERT_LE(1, 5);
+        free_memory<100000> memory;
+        tree_node<100000> node(board.a, board.b, memory);
+        std::cout << "size of node " << sizeof(tree_node<100000>) << std::endl;
+        std::cout << "size of float " << sizeof(float) << std::endl;
+        ASSERT_EQ(node.number_of_choices, 65 * 65);
     }
 
     

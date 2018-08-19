@@ -10,9 +10,9 @@
 namespace bot {
     
     const float gamma = 0.05;
-    #define TOTAL_FREE_BYTES 100000000
+    const uint32_t total_free_bytes = 1000000000;
 
-    template <long N>
+    template <uint32_t N>
     struct free_memory {
         uint8_t buffer[N];
         uint32_t free_index = 0;
@@ -21,18 +21,20 @@ namespace bot {
         }
     };
 
-    free_memory<TOTAL_FREE_BYTES>* global_tree_buffer = nullptr;
+    free_memory<total_free_bytes>* global_tree_buffer = nullptr;
 
-    template <long N>
-    void* allocate_memory(free_memory<N>& free_memory, uint16_t bytes) {
+    template <uint32_t N>
+    void* allocate_memory(free_memory<N>& free_memory, uint32_t bytes) {
         void* buffer_block = &(free_memory.buffer[free_memory.free_index]);
         free_memory.free_index += bytes;
-        assert(free_memory.free_index < TOTAL_FREE_BYTES);
+        assert(free_memory.free_index < total_free_bytes);
+//        std::cout << "free memory index " << free_memory.free_index << std::endl;
         return buffer_block;
     }
 
-    template <long N>
+    template <uint32_t N>
     struct tree_node {
+        bool already_visited = false;
         uint16_t number_of_choices_a;
         uint16_t number_of_choices_b;
         uint32_t number_of_choices;
@@ -90,9 +92,9 @@ namespace bot {
         }
 
         uint16_t decode_move(uint16_t player_choice, 
-                                    uint8_t available,
-                                    uint64_t unoccupied,
-                                    uint16_t number_of_player_choices) {
+                             uint8_t available,
+                             uint64_t unoccupied,
+                             uint16_t number_of_player_choices) {
 
             if (player_choice == 0) { 
                 return 0;
@@ -133,16 +135,25 @@ namespace bot {
 
     };
 
-    template <long N>
+    template <uint32_t N>
     void update_regret(tree_node<N>& tree_node, float reward, uint16_t selection) {
-        tree_node.total_positive_regret -= 
+        tree_node.total_positive_regret = 
             std::max(0., (double)(tree_node.total_positive_regret - (768 * reward)));
         float regret_update_value = reward / tree_node.pdf[selection];
-        tree_node.total_positive_regret += regret_update_value;
-        tree_node.positive_regret[selection] += regret_update_value;
+        tree_node.positive_regret[selection] = 
+            tree_node.positive_regret[selection] + regret_update_value;
+        for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
+            tree_node.positive_regret[i] = 
+                std::max(0., (double)tree_node.positive_regret[i] - reward);
+        }
+        tree_node.positive_regret[selection] = 
+            std::max(0., (double)tree_node.positive_regret[selection]);
+        assert(selection < tree_node.number_of_choices);
+        tree_node.total_positive_regret = std::max(0., (double)regret_update_value);
+
     }
 
-    template <long N>
+    template <uint32_t N>
     void construct_cdf(tree_node<N>& tree_node) {
         tree_node.cdf[0] = tree_node.pdf[0];
         for (uint32_t i = 1; i < tree_node.number_of_choices; i++) {
@@ -151,7 +162,7 @@ namespace bot {
         tree_node.total_mass = tree_node.cdf[tree_node.number_of_choices - 1];
     }
 
-    template <long N>
+    template <uint32_t N>
     uint32_t sample(std::mt19937& mt, 
                     std::uniform_real_distribution<float>& uniform_distribution,
                     tree_node<N>& tree_node) {
@@ -163,21 +174,31 @@ namespace bot {
         while (greater_condition || less_condition) {
             if (greater_condition) {
                 bottom = mid;
-                mid = (top + bottom) / 2;
+                uint32_t new_mid = (top + bottom) / 2;
+                mid = (new_mid & -(mid < new_mid)) | ((mid + 1) & -(mid == new_mid));
             } else if (less_condition) {
                 top = mid;
                 mid = (top + bottom) / 2;
             } else {
-                return mid + 1;
+                // if (mid == 111) {
+                //     std::cout << tree_node.cdf[mid - 1] << std::endl;
+                //     std::cout << selection << std::endl;
+                // }
+                return mid;
             }
             greater_condition = selection > tree_node.cdf[mid];
             less_condition = (mid > 0) && (selection < tree_node.cdf[mid - 1]);
         }
-        return mid + 1;
+        // if (mid == 111) {
+        //     std::cout << tree_node.total_mass << std::endl;
+        //     std::cout << tree_node.cdf[mid - 1] << std::endl;
+        //     std::cout << selection << std::endl;
+        // }
+        return mid;
     }
 
-    template <long N>
-    void update_node(tree_node<N>& tree_node, float reward, uint16_t selection) {
+    template <uint32_t N>
+    void update_node(tree_node<N>& tree_node, float reward, uint32_t selection) {
         if (reward != 0) {
             update_regret(tree_node, reward, selection);
             if (tree_node.total_positive_regret == 0) {
@@ -187,15 +208,20 @@ namespace bot {
                 float* pdf = tree_node.pdf;
                 float gamma_over_k = gamma / tree_node.number_of_choices;
                 for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
+                    assert(tree_node.positive_regret[i] >= 0);
+                    assert(gamma_over_k > 0);
+                    assert(1 - gamma > 0);
+                    assert(tree_node.total_positive_regret > 0);
                     pdf[i] = (1 - gamma)
                         * (tree_node.positive_regret[i] 
                            / tree_node.total_positive_regret) + gamma_over_k;
+                    assert(pdf[i] >= 0);
                 }
             }
         }
     }
 
-    template <long N>
+    template <uint32_t N>
     uint32_t select_index(std::mt19937& mt, 
                           std::uniform_real_distribution<float> uniform_distribution,
                           tree_node<N>& tree_node) {
@@ -203,11 +229,11 @@ namespace bot {
         return sample(mt, uniform_distribution, tree_node);
     }
 
-    template <long N>
+    template <uint32_t N>
     tree_node<N>* allocate_node(free_memory<N>& free_memory, 
                                       board_t& board) {
-        tree_node<N>* place = static_cast<tree_node<N>*>(allocate_memory(free_memory,
-                                                                     sizeof(tree_node<N>)));
+        void* place = (allocate_memory(free_memory,
+                                       sizeof(tree_node<N>)));
         return new (place) tree_node<N>(board.a, board.b, free_memory);
     }
  
@@ -216,7 +242,9 @@ namespace bot {
         else return 1.;
     }
 
-    template <long N>
+    uint64_t new_node_count = 0;
+
+    template <uint32_t N>
     tree_node<N>* sm_mcts(std::mt19937& mt,
                           std::uniform_real_distribution<float>& uniform_distribution,
                           float& reward,
@@ -225,6 +253,9 @@ namespace bot {
                           board_t& board, 
                           uint16_t current_turn) {
         if (tn == nullptr) {
+//            std::cout << "new node" << std::endl;
+            new_node_count++;
+            std::cout << "new node count " << new_node_count << std::endl;
             tree_node<N>* result = allocate_node(free_memory, board);
             uint32_t index = select_index(mt, uniform_distribution, *result);
             uint16_t a_move = result->decode_a_move(index % result->number_of_choices_a);
@@ -232,12 +263,29 @@ namespace bot {
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             reward = calculate_reward(board.a);
             update_node(*result, reward, index);
+//            std::cout << "end of new node " << result << std::endl;
             return result;
         } else {
+            // std::cout << "starting" << std::endl;
+            // std::cout << "old node " << tn << std::endl;
+            if (!tn->already_visited) {
+                for (uint32_t i = 0; i < tn->number_of_choices; i++) {
+                    assert(tn->children[i] == nullptr);
+                }
+            }
+            tn->already_visited = true;
+            // std::cout << "done" << std::endl;
+            // std::cout << "old node " << tn << std::endl;
             uint32_t index = select_index(mt, uniform_distribution, *tn);
+            // std::cout << "old node 1" << std::endl;
             uint16_t a_move = tn->decode_a_move(index % tn->number_of_choices_a);
+            // std::cout << "old node 2" << std::endl;
             uint16_t b_move = tn->decode_b_move(index / tn->number_of_choices_a);
+            // std::cout << "old node 3" << std::endl;
             advance_state(a_move, b_move, board.a, board.b, current_turn);
+            // std::cout << "old node 4" << std::endl;
+            // std::cout << "chose index " << index << " " << tn->number_of_choices << std::endl;
+            assert(index >= 0 && index < tn->number_of_choices);
             tn->children[index] = sm_mcts(mt, 
                                           uniform_distribution,
                                           reward, 
@@ -245,12 +293,14 @@ namespace bot {
                                           free_memory,
                                           board,
                                           current_turn + 1);
+            // std::cout << "old node 5" << std::endl;
             update_node(*tn, reward, index);
+            // std::cout << "end of old node" << std::endl;
             return tn;
         }
     }
 
-    template <long N>
+    template <uint32_t N>
     uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
         std::mt19937 mt;
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
@@ -258,7 +308,7 @@ namespace bot {
         tree_node<N>* root = allocate_node(*memory, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        while (iterations < 1000) {
+        while (iterations < 10000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, root, *memory, board_copy, current_turn);
@@ -302,7 +352,7 @@ namespace bot {
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
         if (current_turn != (uint16_t) -1) {
-            uint16_t move = mcts_find_best_move<TOTAL_FREE_BYTES>(board, current_turn);
+            uint16_t move = mcts_find_best_move<total_free_bytes>(board, current_turn);
             uint8_t position = move >> 3;
             uint8_t building_num = move & 7;
             uint8_t row = position >> 3;
