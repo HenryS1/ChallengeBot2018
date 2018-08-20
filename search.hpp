@@ -35,8 +35,8 @@ namespace bot {
     template <uint32_t N>
     void deallocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
         assert(bytes < thread_state.free_index);
-        thread_state.free_memory -= bytes;
-        std::memset(&(thread_state.buffer[thread_state.free_memory]), 0, bytes);
+        thread_state.free_index -= bytes;
+        std::memset(&(thread_state.buffer[thread_state.free_index]), 0, bytes);
     }
 
     template <uint32_t N>
@@ -229,6 +229,7 @@ namespace bot {
                                         tree_node.number_of_choices, cdf);
             selection_probability = selection == 0 ? cdf[0] : 
                 cdf[selection] - cdf[selection - 1];
+            tree_node.deallocate_cdf(thread_state);
             return selection;
         }
     }
