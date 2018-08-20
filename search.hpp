@@ -8,72 +8,86 @@
 #include <random>
 
 namespace bot {
-    
+
     const float gamma = 0.05;
     const uint32_t total_free_bytes = 300000000;
 
     template <uint32_t N>
-    struct free_memory {
+    struct thread_state {
         uint8_t buffer[N];
         uint32_t free_index = 0;
-        free_memory() {
+        thread_state() {
             std::memset(buffer, 0, N);
         }
     };
 
-    free_memory<total_free_bytes>* global_tree_buffer = nullptr;
+    thread_state<total_free_bytes>* global_tree_buffer = nullptr;
 
     template <uint32_t N>
-    void* allocate_memory(free_memory<N>& free_memory, uint32_t bytes) {
-        void* buffer_block = &(free_memory.buffer[free_memory.free_index]);
-        free_memory.free_index += bytes;
-        assert(free_memory.free_index < total_free_bytes);
-//        std::cout << "free memory index " << free_memory.free_index << std::endl;
+    void* allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
+        void* buffer_block = &(thread_state.buffer[thread_state.free_index]);
+        thread_state.free_index += bytes;
+        assert(thread_state.free_index < total_free_bytes);
+//        std::cout << "free memory index " << thread_state.free_index << std::endl;
         return buffer_block;
     }
 
     template <uint32_t N>
+    void deallocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
+        assert(bytes < thread_state.free_index);
+        thread_state.free_memory -= bytes;
+        std::memset(&(thread_state.buffer[thread_state.free_memory]), 0, bytes);
+    }
+
+    template <uint32_t N>
     struct tree_node {
-        bool already_visited = false;
-        float* positive_regret = nullptr;
+        float* regret = nullptr;
         uint32_t number_of_choices = 0;
         tree_node* children = nullptr;
-        float* pdf;
-        float* cdf;
-        float total_positive_regret = 0.0;
-        float total_mass = 0.0;
+        float total_regret = 0.0;
 
         tree_node(player_t& a,
-                  player_t& b,
-                  free_memory<N>& free_memory) {
+                  player_t& b) {
             uint32_t number_of_choices_a = calculate_number_of_choices(a);
             uint32_t number_of_choices_b = calculate_number_of_choices(b);
             number_of_choices = number_of_choices_a * number_of_choices_b;
-            float uniform_density = 1. / number_of_choices;
-            // children = (tree_node*)allocate_memory(free_memory, 
+            // children = (tree_node*)allocate_memory(thread_state,
             //                                        number_of_choices * sizeof(tree_node));
-            pdf = (float*)allocate_memory(free_memory, number_of_choices * sizeof(float));
-            cdf = (float*)allocate_memory(free_memory, number_of_choices * sizeof(float));
-            positive_regret = (float*)allocate_memory(free_memory, 
-                                                      number_of_choices * sizeof(float));
-            std::fill(pdf, pdf + number_of_choices, uniform_density);
-            std::memset(cdf, 0, number_of_choices * sizeof(float));
-            std::memset(positive_regret, 0, number_of_choices * sizeof(float));
+
         }
 
-        tree_node* get_children(free_memory<N>& free_memory) {
+        tree_node* get_children(thread_state<N>& thread_state) {
             if (children == nullptr) {
-                children = (tree_node*)allocate_memory(free_memory, 
-                                                       number_of_choices * sizeof(tree_node));
+                children = static_cast<tree_node*>(allocate_memory(thread_state,
+                                                       number_of_choices * sizeof(tree_node)));
             }
             return children;
+        }
+
+        float* allocate_cdf(thread_state<N>& thread_state) {
+            float uniform_density = 1. / number_of_choices;
+            float* cdf = (float*)allocate_memory(thread_state, number_of_choices * sizeof(float));
+            std::fill(cdf, cdf + number_of_choices, uniform_density);
+            return cdf;
+        }
+
+        void deallocate_cdf(thread_state<N>& thread_state) {
+            deallocate_memory(thread_state, number_of_choices * sizeof(float));
+        }
+
+        float* get_regret(thread_state<N>& thread_state) {
+            if (regret == nullptr) {
+                regret = (float*)allocate_memory(thread_state,
+                                                 number_of_choices * sizeof(float));
+            }
+            return regret;
         }
 
         uint16_t index_of_maximum_regret() {
             uint16_t index_of_max = 0;
             float max_regret = 0.;
             for (uint16_t i = 0; i < number_of_choices; i++) {
-                float new_regret = positive_regret[i];
+                float new_regret = regret[i];
                 if (new_regret > max_regret) {
                     max_regret = new_regret;
                     index_of_max = i;
@@ -87,19 +101,19 @@ namespace bot {
             return 64 - select_ith_bit(unoccupied, normalized_choice);
         }
 
-        uint16_t decode_move(uint16_t player_choice, 
+        uint16_t decode_move(uint16_t player_choice,
                              player_t& player) {
             uint64_t unoccupied = ~find_occupied(player);
             uint8_t available = count_set_bits(unoccupied);
             uint32_t number_of_player_choices = calculate_number_of_choices(player);
-            if (player_choice == 0) { 
+            if (player_choice == 0) {
                 return 0;
             } else if (number_of_player_choices == available + 1) {
                 return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
             } else {
                 uint8_t building_num = ((player_choice - 1) / available) + 1;
                 uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
-                return building_num | 
+                return building_num |
                     (calculate_selected_position(normalized_choice, unoccupied) << 3);
             }
         }
@@ -126,41 +140,41 @@ namespace bot {
     };
 
     template <uint32_t N>
-    void update_regret(tree_node<N>& tree_node, float reward, uint16_t selection) {
-        tree_node.total_positive_regret = 
-            std::max(0., (double)(tree_node.total_positive_regret - (768 * reward)));
-        float regret_update_value = reward / tree_node.pdf[selection];
-        tree_node.positive_regret[selection] = 
-            tree_node.positive_regret[selection] + regret_update_value;
+    void update_regret(tree_node<N>& tree_node,
+                       thread_state<N>& thread_state,
+                       float reward,
+                       float selection_probability,
+                       uint16_t selection) {
+        tree_node.total_regret =
+            std::max(0., (double)(tree_node.total_regret - (768 * reward)));
+        float regret_update_value = reward / selection_probability;
+        tree_node.get_regret(thread_state)[selection] =
+            tree_node.get_regret(thread_state)[selection] + regret_update_value;
         for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-            tree_node.positive_regret[i] = 
-                std::max(0., (double)tree_node.positive_regret[i] - reward);
+            tree_node.get_regret(thread_state)[i] =
+                std::max(0., (double)tree_node.get_regret(thread_state)[i] - reward);
         }
-        tree_node.positive_regret[selection] = 
-            std::max(0., (double)tree_node.positive_regret[selection]);
+        tree_node.get_regret(thread_state)[selection] =
+            std::max(0., (double)tree_node.get_regret(thread_state)[selection]);
         assert(selection < tree_node.number_of_choices);
-        tree_node.total_positive_regret = std::max(0., (double)regret_update_value);
-
+        tree_node.total_regret = std::max(0., (double)regret_update_value);
     }
 
-    template <uint32_t N>
-    void construct_cdf(tree_node<N>& tree_node) {
-        tree_node.cdf[0] = tree_node.pdf[0];
-        for (uint32_t i = 1; i < tree_node.number_of_choices; i++) {
-            tree_node.cdf[i] = tree_node.pdf[i] + tree_node.cdf[i - 1];
+    void construct_cdf(float* cdf, uint32_t number_of_choices) {
+        for (uint32_t i = 1; i < number_of_choices; i++) {
+            cdf[i] += cdf[i - 1];
         }
-        tree_node.total_mass = tree_node.cdf[tree_node.number_of_choices - 1];
     }
 
-    template <uint32_t N>
-    uint32_t sample(std::mt19937& mt, 
+    uint32_t sample(std::mt19937& mt,
                     std::uniform_real_distribution<float>& uniform_distribution,
-                    tree_node<N>& tree_node) {
-        float selection = uniform_distribution(mt) * tree_node.total_mass;
-        uint16_t bottom = 0, top = tree_node.number_of_choices - 1,
-            mid = tree_node.number_of_choices / 2;
-        bool less_condition = (mid > 0) && (selection < tree_node.cdf[mid - 1]);
-        bool greater_condition = (selection > tree_node.cdf[mid]);
+                    uint32_t number_of_choices,
+                    float* cdf) {
+        float selection = uniform_distribution(mt) * cdf[number_of_choices - 1];
+        uint16_t bottom = 0, top = number_of_choices - 1,
+            mid = number_of_choices / 2;
+        bool less_condition = (mid > 0) && (selection < cdf[mid - 1]);
+        bool greater_condition = (selection > cdf[mid]);
         while (greater_condition || less_condition) {
             if (greater_condition) {
                 bottom = mid;
@@ -176,8 +190,8 @@ namespace bot {
                 // }
                 return mid;
             }
-            greater_condition = selection > tree_node.cdf[mid];
-            less_condition = (mid > 0) && (selection < tree_node.cdf[mid - 1]);
+            greater_condition = selection > cdf[mid];
+            less_condition = (mid > 0) && (selection < cdf[mid - 1]);
         }
         // if (mid == 111) {
         //     std::cout << tree_node.total_mass << std::endl;
@@ -188,44 +202,42 @@ namespace bot {
     }
 
     template <uint32_t N>
-    void update_node(tree_node<N>& tree_node, float reward, uint32_t selection) {
-        if (reward != 0) {
-            update_regret(tree_node, reward, selection);
-            if (tree_node.total_positive_regret == 0) {
-                float value = 1. / tree_node.number_of_choices;
-                std::fill(tree_node.pdf, tree_node.pdf + tree_node.number_of_choices, value);
-            } else {
-                float* pdf = tree_node.pdf;
-                float gamma_over_k = gamma / tree_node.number_of_choices;
-                for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-                    assert(tree_node.positive_regret[i] >= 0);
-                    assert(gamma_over_k > 0);
-                    assert(1 - gamma > 0);
-                    assert(tree_node.total_positive_regret > 0);
-                    pdf[i] = (1 - gamma)
-                        * (tree_node.positive_regret[i] 
-                           / tree_node.total_positive_regret) + gamma_over_k;
-                    assert(pdf[i] >= 0);
-                }
+    uint32_t select_index(std::mt19937& mt,
+                          std::uniform_real_distribution<float>& uniform_distribution,
+                          thread_state<N>& thread_state,
+                          float& selection_probability,
+                          tree_node<N>& tree_node) {
+
+        if (tree_node.total_regret == 0) {
+            selection_probability = 1. / tree_node.number_of_choices;
+            return mt() % tree_node.number_of_choices;
+        } else {
+            float* cdf = tree_node.allocate_cdf(thread_state);
+            float gamma_over_k = gamma / tree_node.number_of_choices;
+            for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
+                assert(tree_node.get_regret(thread_state)[i] >= 0);
+                assert(gamma_over_k > 0);
+                assert(1 - gamma > 0);
+                assert(tree_node.total_regret > 0);
+                cdf[i] = (1 - gamma)
+                    * (tree_node.get_regret(thread_state)[i]
+                       / tree_node.total_regret) + gamma_over_k;
+                assert(cdf[i] >= 0);
             }
+            construct_cdf(cdf, tree_node.number_of_choices);
+            uint32_t selection = sample(mt, uniform_distribution, 
+                                        tree_node.number_of_choices, cdf);
+            selection_probability = selection == 0 ? cdf[0] : 
+                cdf[selection] - cdf[selection - 1];
+            return selection;
         }
     }
 
     template <uint32_t N>
-    uint32_t select_index(std::mt19937& mt, 
-                          std::uniform_real_distribution<float> uniform_distribution,
-                          tree_node<N>& tree_node) {
-        construct_cdf(tree_node);
-        return sample(mt, uniform_distribution, tree_node);
+    tree_node<N>* construct_node(tree_node<N>& node, board_t& board) {
+        return new (&node) tree_node<N>(board.a, board.b);
     }
 
-    template <uint32_t N>
-    tree_node<N>* allocate_node(tree_node<N>& node,
-                                free_memory<N>& free_memory,
-                                board_t& board) {
-        return new (&node) tree_node<N>(board.a, board.b, free_memory);
-    }
- 
     float calculate_reward(player_t& a) {
         if (a.health == 0) return -1.;
         else return 1.;
@@ -238,34 +250,37 @@ namespace bot {
                      std::uniform_real_distribution<float>& uniform_distribution,
                      float& reward,
                      tree_node<N>& node,
-                     free_memory<N>& free_memory,
-                     board_t& board, 
+                     thread_state<N>& thread_state,
+                     board_t& board,
                      uint16_t current_turn) {
         if (node.number_of_choices == 0) {
 //            std::cout << "new node" << std::endl;
             new_node_count++;
             std::cout << "new node count " << new_node_count << std::endl;
-            allocate_node(node, free_memory, board);
-            uint32_t index = select_index(mt, uniform_distribution, node);
+            construct_node(node, board);
+            uint32_t index = mt() % node.number_of_choices;
             uint16_t number_of_choices_a = node.calculate_number_of_choices(board.a);
             uint16_t a_move = node.decode_move(index % number_of_choices_a, board.a);
             uint16_t b_move = node.decode_move(index / number_of_choices_a, board.b);
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             reward = calculate_reward(board.a);
-            update_node(node, reward, index);
+            float uniform_density = 1. / node.number_of_choices;
+            update_regret(node, thread_state, reward, index, uniform_density);
 //            std::cout << "end of new node " << result << std::endl;
         } else {
             // std::cout << "starting" << std::endl;
             // std::cout << "old node " << node << std::endl;
-            if (!node.already_visited) {
-                for (uint32_t i = 0; i < node.number_of_choices; i++) {
-                    assert(node.get_children(free_memory)[i].number_of_choices == 0);
-                }
-            }
-            node.already_visited = true;
+            // if (!node.already_visited) {
+            //     for (uint32_t i = 0; i < node.number_of_choices; i++) {
+            //         assert(node.get_children(thread_state)[i].number_of_choices == 0);
+            //     }
+            // }
+            // node.already_visited = true;
             // std::cout << "done" << std::endl;
             // std::cout << "old node " << node << std::endl;
-            uint32_t index = select_index(mt, uniform_distribution, node);
+            float selection_probability;
+            uint32_t index = select_index(mt, uniform_distribution,
+                                          thread_state, selection_probability, node);
             // std::cout << "old node 1" << std::endl;
             uint16_t number_of_choices_a = node.calculate_number_of_choices(board.a);
             uint16_t a_move = node.decode_move(index % number_of_choices_a, board.a);
@@ -276,15 +291,15 @@ namespace bot {
             // std::cout << "old node 4" << std::endl;
             // std::cout << "chose index " << index << " " << node->number_of_choices << std::endl;
             assert(index >= 0 && index < node.number_of_choices);
-            sm_mcts(mt, 
+            sm_mcts(mt,
                     uniform_distribution,
-                    reward, 
-                    node.children[index], 
-                    free_memory,
+                    reward,
+                    node.get_children(thread_state)[index],
+                    thread_state,
                     board,
                     current_turn + 1);
             // std::cout << "old node 5" << std::endl;
-            update_node(node, reward, index);
+            update_regret(node, thread_state, reward, index, selection_probability);
             // std::cout << "end of old node" << std::endl;
         }
     }
@@ -293,13 +308,13 @@ namespace bot {
     uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
         std::mt19937 mt;
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
-        std::unique_ptr<free_memory<N>> memory(new free_memory<N>());
-        tree_node<N>* root = 
+        std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
+        tree_node<N>* root =
             static_cast<tree_node<N>*>(allocate_memory(*memory, sizeof(tree_node<N>)));
-        allocate_node(*root, *memory, initial_board);
+        construct_node(*root, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        while (iterations < 1000) {
+        while (iterations < 10000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, *root, *memory, board_copy, current_turn);
