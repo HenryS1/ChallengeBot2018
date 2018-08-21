@@ -14,10 +14,11 @@ namespace bot {
 
     template <uint32_t N>
     struct thread_state {
-        uint8_t buffer[N];
+        uint8_t buffer_index = 0;
+        uint8_t buffer[6][N];
+        float distribution[203041] = {0};
         uint32_t free_index = 0;
         thread_state() {
-            std::memset(buffer, 0, N);
         }
     };
 
@@ -25,7 +26,13 @@ namespace bot {
 
     template <uint32_t N>
     void* allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        void* buffer_block = &(thread_state.buffer[thread_state.free_index]);
+        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 5) {
+            thread_state.buffer_index++;
+            thread_state.free_index = 0;
+        }
+        assert(thread_state.free_index + bytes < total_free_bytes);
+        void* buffer_block = &(thread_state.buffer[thread_state.buffer_index]
+                               [thread_state.free_index]);
         thread_state.free_index += bytes;
         assert(thread_state.free_index < total_free_bytes);
 //        std::cout << "free memory index " << thread_state.free_index << std::endl;
@@ -41,10 +48,10 @@ namespace bot {
 
     template <uint32_t N>
     struct tree_node {
-        float* regret = nullptr;
+        float* cumulative_reward = nullptr;
         uint32_t number_of_choices = 0;
         tree_node* children = nullptr;
-        float total_regret = 0.0;
+        float total_exponential_weight = 0.;
 
         tree_node(player_t& a,
                   player_t& b) {
@@ -64,32 +71,32 @@ namespace bot {
             return children;
         }
 
+        void initialize_total_exponential_weight() {
+            float uniform_weight = std::exp(0);
+            total_exponential_weight = uniform_weight * number_of_choices;
+        }
+
         float* allocate_cdf(thread_state<N>& thread_state) {
-            float uniform_density = 1. / number_of_choices;
-            float* cdf = (float*)allocate_memory(thread_state, number_of_choices * sizeof(float));
-            std::fill(cdf, cdf + number_of_choices, uniform_density);
+            float* cdf = thread_state.distribution;
             return cdf;
         }
 
-        void deallocate_cdf(thread_state<N>& thread_state) {
-            deallocate_memory(thread_state, number_of_choices * sizeof(float));
-        }
 
-        float* get_regret(thread_state<N>& thread_state) {
-            if (regret == nullptr) {
-                regret = (float*)allocate_memory(thread_state,
+        float* get_cumulative_reward(thread_state<N>& thread_state) {
+            if (cumulative_reward == nullptr) {
+                cumulative_reward = (float*)allocate_memory(thread_state,
                                                  number_of_choices * sizeof(float));
             }
-            return regret;
+            return cumulative_reward;
         }
 
-        uint16_t index_of_maximum_regret() {
+        uint16_t index_of_maximum_cumulative_reward() {
             uint16_t index_of_max = 0;
-            float max_regret = 0.;
+            float max_cumulative_reward = 0.;
             for (uint16_t i = 0; i < number_of_choices; i++) {
-                float new_regret = regret[i];
-                if (new_regret > max_regret) {
-                    max_regret = new_regret;
+                float new_cumulative_reward = cumulative_reward[i];
+                if (new_cumulative_reward > max_cumulative_reward) {
+                    max_cumulative_reward = new_cumulative_reward;
                     index_of_max = i;
                 }
             }
@@ -140,24 +147,16 @@ namespace bot {
     };
 
     template <uint32_t N>
-    void update_regret(tree_node<N>& tree_node,
-                       thread_state<N>& thread_state,
-                       float reward,
-                       float selection_probability,
-                       uint16_t selection) {
-        tree_node.total_regret =
-            std::max(0., (double)(tree_node.total_regret - (768 * reward)));
-        float regret_update_value = reward / selection_probability;
-        tree_node.get_regret(thread_state)[selection] =
-            tree_node.get_regret(thread_state)[selection] + regret_update_value;
-        for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-            tree_node.get_regret(thread_state)[i] =
-                std::max(0., (double)tree_node.get_regret(thread_state)[i] - reward);
-        }
-        tree_node.get_regret(thread_state)[selection] =
-            std::max(0., (double)tree_node.get_regret(thread_state)[selection]);
+    void update_cumulative_reward(tree_node<N>& tree_node,
+                                  thread_state<N>& thread_state,
+                                  float reward,
+                                  float selection_probability,
+                                  uint16_t selection) {
+
+        float cumulative_reward_update_value = reward / selection_probability;
+        float* cumulative_reward = tree_node.get_cumulative_reward(thread_state);
+        cumulative_reward[selection] += cumulative_reward_update_value;
         assert(selection < tree_node.number_of_choices);
-        tree_node.total_regret = std::max(0., (double)regret_update_value);
     }
 
     void construct_cdf(float* cdf, uint32_t number_of_choices) {
@@ -171,8 +170,7 @@ namespace bot {
                     uint32_t number_of_choices,
                     float* cdf) {
         float selection = uniform_distribution(mt) * cdf[number_of_choices - 1];
-        uint16_t bottom = 0, top = number_of_choices - 1,
-            mid = number_of_choices / 2;
+        uint16_t bottom = 0, top = number_of_choices - 1, mid = number_of_choices / 2;
         bool less_condition = (mid > 0) && (selection < cdf[mid - 1]);
         bool greater_condition = (selection > cdf[mid]);
         while (greater_condition || less_condition) {
@@ -184,20 +182,11 @@ namespace bot {
                 top = mid;
                 mid = (top + bottom) / 2;
             } else {
-                // if (mid == 111) {
-                //     std::cout << tree_node.cdf[mid - 1] << std::endl;
-                //     std::cout << selection << std::endl;
-                // }
                 return mid;
             }
             greater_condition = selection > cdf[mid];
             less_condition = (mid > 0) && (selection < cdf[mid - 1]);
         }
-        // if (mid == 111) {
-        //     std::cout << tree_node.total_mass << std::endl;
-        //     std::cout << tree_node.cdf[mid - 1] << std::endl;
-        //     std::cout << selection << std::endl;
-        // }
         return mid;
     }
 
@@ -208,31 +197,29 @@ namespace bot {
                           float& selection_probability,
                           tree_node<N>& tree_node) {
 
-        if (tree_node.total_regret < 0.000000001) {
-            selection_probability = 1. / tree_node.number_of_choices;
-            return mt() % tree_node.number_of_choices;
-        } else {
-            float* cdf = tree_node.allocate_cdf(thread_state);
-            float gamma_over_k = gamma / tree_node.number_of_choices;
-            for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-                assert(tree_node.get_regret(thread_state)[i] >= 0);
-                assert(gamma_over_k > 0);
-                assert(1 - gamma > 0);
-                assert(tree_node.total_regret > 0);
-                cdf[i] = (1 - gamma)
-                    * (tree_node.get_regret(thread_state)[i]
-                       / tree_node.total_regret) + gamma_over_k;
-                assert(cdf[i] > 0);
+        float* cdf = tree_node.allocate_cdf(thread_state);
+        float gamma_over_k = gamma / tree_node.number_of_choices;
+        float* cumulative_reward = tree_node.get_cumulative_reward(thread_state);
+        for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
+            assert(cumulative_reward[i] >= 0);
+            assert(gamma_over_k > 0);
+            assert(1 - gamma > 0);
+            cdf[i] = std::exp(gamma_over_k * cumulative_reward[i]);
+            cdf[i] = (1 - gamma) * cdf[i] + gamma_over_k;
+            if (!(cdf[i] > 0)) {
+                std::cout << "gamma over k " << gamma_over_k << std::endl;
+                std::cout << "total cumulative_reward " << tree_node.total_exponential_weight << std::endl;
+                std::cout << "what the " << cdf[i] << std::endl;
             }
-            construct_cdf(cdf, tree_node.number_of_choices);
-            uint32_t selection = sample(mt, uniform_distribution, 
-                                        tree_node.number_of_choices, cdf);
-            selection_probability = selection == 0 ? cdf[0] : 
-                cdf[selection] - cdf[selection - 1];
-            assert(selection_probability > 0);
-            tree_node.deallocate_cdf(thread_state);
-            return selection;
+            assert(cdf[i] > 0);
         }
+        construct_cdf(cdf, tree_node.number_of_choices);
+        uint32_t selection = sample(mt, uniform_distribution, 
+                                    tree_node.number_of_choices, cdf);
+        selection_probability = selection == 0 ? cdf[0] : 
+            cdf[selection] - cdf[selection - 1];
+        assert(selection_probability > 0);
+        return selection;
     }
 
     template <uint32_t N>
@@ -248,17 +235,17 @@ namespace bot {
     uint64_t new_node_count = 0;
 
     template <uint32_t N>
-        void sm_mcts(std::mt19937& mt,
-                     std::uniform_real_distribution<float>& uniform_distribution,
-                     float& reward,
-                     tree_node<N>& node,
-                     thread_state<N>& thread_state,
-                     board_t& board,
-                     uint16_t current_turn) {
+    void sm_mcts(std::mt19937& mt,
+                 std::uniform_real_distribution<float>& uniform_distribution,
+                 float& reward,
+                 tree_node<N>& node,
+                 thread_state<N>& thread_state,
+                 board_t& board,
+                 uint16_t current_turn) {
         if (node.number_of_choices == 0) {
 //            std::cout << "new node" << std::endl;
             new_node_count++;
-            std::cout << "new node count " << new_node_count << std::endl;
+//            std::cout << "new node count " << new_node_count << std::endl;
             construct_node(node, board);
             uint32_t index = mt() % node.number_of_choices;
             uint16_t number_of_choices_a = node.calculate_number_of_choices(board.a);
@@ -267,7 +254,7 @@ namespace bot {
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             reward = calculate_reward(board.a);
             float uniform_density = 1. / node.number_of_choices;
-            update_regret(node, thread_state, reward, uniform_density, index);
+            update_cumulative_reward(node, thread_state, reward, uniform_density, index);
 //            std::cout << "end of new node " << result << std::endl;
         } else {
             // std::cout << "starting" << std::endl;
@@ -302,7 +289,7 @@ namespace bot {
                     current_turn + 1);
             // std::cout << "old node 5" << std::endl;
             assert(selection_probability > 0);
-            update_regret(node, thread_state, reward, selection_probability, index);
+            update_cumulative_reward(node, thread_state, reward, selection_probability, index);
             // std::cout << "end of old node" << std::endl;
         }
     }
@@ -317,15 +304,16 @@ namespace bot {
         construct_node(*root, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        while (iterations < 10000) {
+        while (iterations < 40000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, *root, *memory, board_copy, current_turn);
             iterations++;
         }
-        uint16_t index_of_max_regret = root->index_of_maximum_regret();
+        uint16_t index_of_max_cumulative_reward = root->index_of_maximum_cumulative_reward();
         uint16_t number_of_choices_a = root->calculate_number_of_choices(initial_board.a);
-        return root->decode_move(index_of_max_regret % number_of_choices_a, initial_board.a);
+        return root->decode_move(index_of_max_cumulative_reward 
+                                 % number_of_choices_a, initial_board.a);
     }
 
     uint16_t read_board(board_t& board, std::string& state_path) {
