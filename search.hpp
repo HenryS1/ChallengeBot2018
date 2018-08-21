@@ -208,7 +208,7 @@ namespace bot {
                           float& selection_probability,
                           tree_node<N>& tree_node) {
 
-        if (tree_node.total_regret == 0) {
+        if (tree_node.total_regret < 0.000000001) {
             selection_probability = 1. / tree_node.number_of_choices;
             return mt() % tree_node.number_of_choices;
         } else {
@@ -222,13 +222,14 @@ namespace bot {
                 cdf[i] = (1 - gamma)
                     * (tree_node.get_regret(thread_state)[i]
                        / tree_node.total_regret) + gamma_over_k;
-                assert(cdf[i] >= 0);
+                assert(cdf[i] > 0);
             }
             construct_cdf(cdf, tree_node.number_of_choices);
             uint32_t selection = sample(mt, uniform_distribution, 
                                         tree_node.number_of_choices, cdf);
             selection_probability = selection == 0 ? cdf[0] : 
                 cdf[selection] - cdf[selection - 1];
+            assert(selection_probability > 0);
             tree_node.deallocate_cdf(thread_state);
             return selection;
         }
@@ -266,7 +267,7 @@ namespace bot {
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             reward = calculate_reward(board.a);
             float uniform_density = 1. / node.number_of_choices;
-            update_regret(node, thread_state, reward, index, uniform_density);
+            update_regret(node, thread_state, reward, uniform_density, index);
 //            std::cout << "end of new node " << result << std::endl;
         } else {
             // std::cout << "starting" << std::endl;
@@ -300,7 +301,8 @@ namespace bot {
                     board,
                     current_turn + 1);
             // std::cout << "old node 5" << std::endl;
-            update_regret(node, thread_state, reward, index, selection_probability);
+            assert(selection_probability > 0);
+            update_regret(node, thread_state, reward, selection_probability, index);
             // std::cout << "end of old node" << std::endl;
         }
     }
