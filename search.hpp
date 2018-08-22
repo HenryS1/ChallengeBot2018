@@ -18,8 +18,6 @@ namespace bot {
         uint8_t buffer[6][N];
         float distribution[203041] = {0};
         uint32_t free_index = 0;
-        thread_state() {
-        }
     };
 
     thread_state<total_free_bytes>* global_tree_buffer = nullptr;
@@ -34,8 +32,6 @@ namespace bot {
         void* buffer_block = &(thread_state.buffer[thread_state.buffer_index]
                                [thread_state.free_index]);
         thread_state.free_index += bytes;
-        assert(thread_state.free_index < total_free_bytes);
-//        std::cout << "free memory index " << thread_state.free_index << std::endl;
         return buffer_block;
     }
 
@@ -58,9 +54,6 @@ namespace bot {
             uint32_t number_of_choices_a = calculate_number_of_choices(a);
             uint32_t number_of_choices_b = calculate_number_of_choices(b);
             number_of_choices = number_of_choices_a * number_of_choices_b;
-            // children = (tree_node*)allocate_memory(thread_state,
-            //                                        number_of_choices * sizeof(tree_node));
-
         }
 
         tree_node* get_children(thread_state<N>& thread_state) {
