@@ -6,19 +6,20 @@
 #include <stdint.h>
 #include <algorithm>
 #include <random>
+#include <time.h>
 
 namespace bot {
 
     const float uniform_weight = std::exp(0);
     const float gamma = 0.05;
-    const uint32_t total_free_bytes = 300000000;
+    const uint32_t total_free_bytes = 500000000;
 
     template <uint32_t N>
     struct thread_state {
         uint8_t buffer_index = 0;
-        uint8_t buffer[9][N];
+        uint8_t buffer[8][N];
         float distribution[203041] = {0};
-        uint32_t free_index = 0;
+        uint32_t free_index = 1;
         thread_state() {
 
         }
@@ -27,23 +28,29 @@ namespace bot {
     thread_state<total_free_bytes>* global_tree_buffer = nullptr;
 
     template <uint32_t N>
-    void* allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 8) {
+    uint32_t allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
+        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 7) {
             thread_state.buffer_index++;
             thread_state.free_index = 0;
         }
+        uint32_t index_number = thread_state.buffer_index | (thread_state.free_index << 3);
+        // std::cout << "allocated " <<  
+        //     (thread_state.buffer_index * N + thread_state.free_index + bytes) << std::endl;
         assert(thread_state.free_index + bytes < total_free_bytes);
-        void* buffer_block = &(thread_state.buffer[thread_state.buffer_index]
-                               [thread_state.free_index]);
         thread_state.free_index += bytes;
-        return buffer_block;
+        return index_number;
+    }
+
+    template <uint32_t N>
+    void* get_buffer_by_index(thread_state<N>& thread_state, uint32_t index) {
+        return &(thread_state.buffer[index & 7][index >> 3]);
     }
 
     template <uint32_t N>
     struct tree_node {
-        float* cumulative_reward = nullptr;
+        uint32_t cumulative_reward = 0;
         uint32_t number_of_choices = 0;
-        tree_node* children = nullptr;
+        uint32_t children = 0;
         float total_exponential_weight = 0.;
 
         tree_node(player_t& a,
@@ -54,11 +61,13 @@ namespace bot {
         }
 
         tree_node* get_children(thread_state<N>& thread_state) {
-            if (children == nullptr) {
-                children = static_cast<tree_node*>(allocate_memory(thread_state,
-                                                       number_of_choices * sizeof(tree_node)));
+            if (children == 0) {
+                children = allocate_memory(thread_state, number_of_choices * sizeof(tree_node));
+                // for (tree_node<N>* child = children; 
+                //      child != children + number_of_choices;
+                //      child++) assert(child->total_exponential_weight == 0.);
             }
-            return children;
+            return static_cast<tree_node<N>*>(get_buffer_by_index(thread_state, children));
         }
 
         void initialize_total_exponential_weight() {
@@ -72,16 +81,17 @@ namespace bot {
 
 
         float* get_cumulative_reward(thread_state<N>& thread_state) {
-            if (cumulative_reward == nullptr) {
-                cumulative_reward = (float*)allocate_memory(thread_state,
-                                                 number_of_choices * sizeof(float));
+            if (cumulative_reward == 0) {
+                cumulative_reward = allocate_memory(thread_state,
+                                                    number_of_choices * sizeof(float));
             }
-            return cumulative_reward;
+            return static_cast<float*>(get_buffer_by_index(thread_state, cumulative_reward));
         }
 
-        uint16_t index_of_maximum_cumulative_reward() {
+        uint16_t index_of_maximum_cumulative_reward(thread_state<N>& thread_state) {
             uint16_t index_of_max = 0;
             float max_cumulative_reward = 0.;
+            float* cumulative_reward = get_cumulative_reward(thread_state);
             for (uint16_t i = 0; i < number_of_choices; i++) {
                 float new_cumulative_reward = cumulative_reward[i];
                 if (new_cumulative_reward > max_cumulative_reward) {
@@ -92,8 +102,7 @@ namespace bot {
             return index_of_max;
         }
 
-        uint8_t calculate_selected_position(uint16_t normalized_choice,
-                                                   uint64_t unoccupied) {
+        uint8_t calculate_selected_position(uint16_t normalized_choice, uint64_t unoccupied) {
             return 64 - select_ith_bit(unoccupied, normalized_choice);
         }
 
@@ -191,7 +200,7 @@ namespace bot {
         float gamma_over_k = gamma / tree_node.number_of_choices;
         float* cumulative_reward = tree_node.get_cumulative_reward(thread_state);
         for (uint32_t i = 0; i < tree_node.number_of_choices; i++) {
-            assert(cumulative_reward[i] >= 0);
+            //assert(cumulative_reward[i] >= 0);
             assert(gamma_over_k > 0);
             assert(1 - gamma > 0);
             cdf[i] = std::exp(gamma_over_k * cumulative_reward[i]);
@@ -286,21 +295,22 @@ namespace bot {
 
     template <uint32_t N>
     uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
-        std::mt19937 mt;
+        std::mt19937 mt(time(0));
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
         std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
-        tree_node<N>* root =
-            static_cast<tree_node<N>*>(allocate_memory(*memory, sizeof(tree_node<N>)));
+        uint32_t index = allocate_memory(*memory, sizeof(tree_node<N>));
+        tree_node<N>* root = static_cast<tree_node<N>*>(get_buffer_by_index(*memory, index));
         construct_node(*root, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        while (iterations < 20000) {
+        while (iterations < 5000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, *root, *memory, board_copy, current_turn);
             iterations++;
         }
-        uint16_t index_of_max_cumulative_reward = root->index_of_maximum_cumulative_reward();
+        uint16_t index_of_max_cumulative_reward = 
+            root->index_of_maximum_cumulative_reward(*memory);
         uint16_t number_of_choices_a = root->calculate_number_of_choices(initial_board.a);
         return root->decode_move(index_of_max_cumulative_reward 
                                  % number_of_choices_a, initial_board.a);
