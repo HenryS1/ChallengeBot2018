@@ -9,22 +9,26 @@
 
 namespace bot {
 
+    const float uniform_weight = std::exp(0);
     const float gamma = 0.05;
     const uint32_t total_free_bytes = 300000000;
 
     template <uint32_t N>
     struct thread_state {
         uint8_t buffer_index = 0;
-        uint8_t buffer[6][N];
+        uint8_t buffer[9][N];
         float distribution[203041] = {0};
         uint32_t free_index = 0;
+        thread_state() {
+
+        }
     };
 
     thread_state<total_free_bytes>* global_tree_buffer = nullptr;
 
     template <uint32_t N>
     void* allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 5) {
+        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 8) {
             thread_state.buffer_index++;
             thread_state.free_index = 0;
         }
@@ -33,13 +37,6 @@ namespace bot {
                                [thread_state.free_index]);
         thread_state.free_index += bytes;
         return buffer_block;
-    }
-
-    template <uint32_t N>
-    void deallocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        assert(bytes < thread_state.free_index);
-        thread_state.free_index -= bytes;
-        std::memset(&(thread_state.buffer[thread_state.free_index]), 0, bytes);
     }
 
     template <uint32_t N>
@@ -65,7 +62,6 @@ namespace bot {
         }
 
         void initialize_total_exponential_weight() {
-            float uniform_weight = std::exp(0);
             total_exponential_weight = uniform_weight * number_of_choices;
         }
 
@@ -101,11 +97,12 @@ namespace bot {
             return 64 - select_ith_bit(unoccupied, normalized_choice);
         }
 
-        uint16_t decode_move(uint16_t player_choice,
-                             player_t& player) {
+        uint16_t decode_move(uint16_t player_choice, player_t& player) {
             uint64_t unoccupied = ~find_occupied(player);
             uint8_t available = count_set_bits(unoccupied);
             uint32_t number_of_player_choices = calculate_number_of_choices(player);
+            uint8_t position = calculate_selected_position(player_choice, unoccupied);
+            assert(position >= 0 && position < 64);
             if (player_choice == 0) {
                 return 0;
             } else if (number_of_player_choices == available + 1) {
@@ -297,7 +294,7 @@ namespace bot {
         construct_node(*root, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        while (iterations < 40000) {
+        while (iterations < 20000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, *root, *memory, board_copy, current_turn);
@@ -345,9 +342,10 @@ namespace bot {
         if (current_turn != (uint16_t) -1) {
             uint16_t move = mcts_find_best_move<total_free_bytes>(board, current_turn);
             uint8_t position = move >> 3;
+            assert(position >= 0 && position < 64);
             uint8_t building_num = move & 7;
             uint8_t row = position >> 3;
-            uint8_t col = position & 8;
+            uint8_t col = position & 7;
             write_to_file(row, col, building_num);
         }
     }
