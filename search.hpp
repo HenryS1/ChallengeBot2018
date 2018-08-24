@@ -28,42 +28,29 @@ namespace bot {
     thread_state<total_free_bytes>* global_tree_buffer = nullptr;
 
     template <uint32_t N>
-    void* allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 8) {
-             thread_state.buffer_index++;
-             thread_state.free_index = 0;
-         }
-         assert(thread_state.free_index + bytes < total_free_bytes);
-        void* buffer_block = &(thread_state.buffer[thread_state.buffer_index]
-                               [thread_state.free_index]);
-         thread_state.free_index += bytes;
-        return buffer_block;
+    uint32_t allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
+        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 7) {
+            thread_state.buffer_index++;
+            thread_state.free_index = 0;
+        }
+        uint32_t index_number = thread_state.buffer_index | (thread_state.free_index << 3);
+        // std::cout << "allocated " <<  
+        //     (thread_state.buffer_index * N + thread_state.free_index + bytes) << std::endl;
+        assert(thread_state.free_index + bytes < total_free_bytes);
+        thread_state.free_index += bytes;
+        return index_number;
     }
 
-    uint16_t calculate_number_of_choices(player_t& player) {
-        uint16_t number_of_choices;
-        uint64_t unoccupied = ~find_occupied(player);
-        uint8_t available = count_set_bits(unoccupied);
-        if (player.energy < 20) {
-            number_of_choices = 1;
-        } else if (player.energy < 30) {
-            number_of_choices = available + 1;
-        } if (player.energy < 100 || (!player.iron_curtain_available
-                                           && !can_build_tesla_tower(player))) {
-            number_of_choices = 1 + (available * 3);
-        } else if (!player.iron_curtain_available) {
-            number_of_choices = (available * 4) + 1;
-        } else {
-            number_of_choices = (available * 5) + 1;
-        }
-        return number_of_choices;
+    template <uint32_t N>
+    void* get_buffer_by_index(thread_state<N>& thread_state, uint32_t index) {
+        return &(thread_state.buffer[index & 7][index >> 3]);
     }
 
     template <uint32_t N>
     struct tree_node {
-        float* cumulative_reward = nullptr;
+        uint32_t cumulative_reward = 0;
         uint32_t number_of_choices = 0;
-        tree_node* children = nullptr;
+        uint32_t children = 0;
         float total_exponential_weight = 0.;
 
         tree_node(player_t& a,
@@ -74,11 +61,13 @@ namespace bot {
         }
 
         tree_node* get_children(thread_state<N>& thread_state) {
-            if (children == nullptr) {
-                children = static_cast<tree_node*>(allocate_memory(thread_state,
-                                                       number_of_choices * sizeof(tree_node)));
+            if (children == 0) {
+                children = allocate_memory(thread_state, number_of_choices * sizeof(tree_node));
+                // for (tree_node<N>* child = children; 
+                //      child != children + number_of_choices;
+                //      child++) assert(child->total_exponential_weight == 0.);
             }
-            return children;
+            return static_cast<tree_node<N>*>(get_buffer_by_index(thread_state, children));
         }
 
         void initialize_total_exponential_weight() {
@@ -92,51 +81,69 @@ namespace bot {
 
 
         float* get_cumulative_reward(thread_state<N>& thread_state) {
-            if (cumulative_reward == nullptr) {
-                cumulative_reward = (float*)allocate_memory(thread_state,
-                                                 number_of_choices * sizeof(float));
+            if (cumulative_reward == 0) {
+                cumulative_reward = allocate_memory(thread_state,
+                                                    number_of_choices * sizeof(float));
             }
-            return cumulative_reward;
+            return static_cast<float*>(get_buffer_by_index(thread_state, cumulative_reward));
+        }
+
+        uint16_t index_of_maximum_cumulative_reward(thread_state<N>& thread_state) {
+            uint16_t index_of_max = 0;
+            float max_cumulative_reward = 0.;
+            float* cumulative_reward = get_cumulative_reward(thread_state);
+            for (uint16_t i = 0; i < number_of_choices; i++) {
+                float new_cumulative_reward = cumulative_reward[i];
+                if (new_cumulative_reward > max_cumulative_reward) {
+                    max_cumulative_reward = new_cumulative_reward;
+                    index_of_max = i;
+                }
+            }
+            return index_of_max;
+        }
+
+        uint8_t calculate_selected_position(uint16_t normalized_choice, uint64_t unoccupied) {
+            return 64 - select_ith_bit(unoccupied, normalized_choice);
+        }
+
+        uint16_t decode_move(uint16_t player_choice, player_t& player) {
+            uint64_t unoccupied = ~find_occupied(player);
+            uint8_t available = count_set_bits(unoccupied);
+            uint32_t number_of_player_choices = calculate_number_of_choices(player);
+            uint8_t position = calculate_selected_position(player_choice, unoccupied);
+            assert(position >= 0 && position < 64);
+            if (player_choice == 0) {
+                return 0;
+            } else if (number_of_player_choices == available + 1) {
+                return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
+            } else {
+                uint8_t building_num = ((player_choice - 1) / available) + 1;
+                uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
+                return building_num |
+                    (calculate_selected_position(normalized_choice, unoccupied) << 3);
+            }
+        }
+
+        uint16_t calculate_number_of_choices(player_t& player) {
+            uint16_t number_of_choices;
+            uint64_t unoccupied = ~find_occupied(player);
+            uint8_t available = count_set_bits(unoccupied);
+            if (player.energy < 20) {
+                number_of_choices = 1;
+            } else if (player.energy < 30) {
+                number_of_choices = available + 1;
+            } else if (player.energy < 100 || (!player.iron_curtain_available
+                                               && !can_build_tesla_tower(player))) {
+                number_of_choices = 1 + (available * 3);
+            } else if (!player.iron_curtain_available) {
+                number_of_choices = (available * 4) + 1;
+            } else {
+                number_of_choices = (available * 5) + 1;
+            }
+            return number_of_choices;
         }
 
     };
-
-    uint8_t calculate_selected_position(uint16_t normalized_choice, uint64_t unoccupied) {
-        return 64 - select_ith_bit(unoccupied, normalized_choice);
-    }
-
-    uint16_t decode_move(uint16_t player_choice, player_t& player) {
-        uint64_t unoccupied = ~find_occupied(player);
-        uint8_t available = count_set_bits(unoccupied);
-        uint32_t number_of_player_choices = calculate_number_of_choices(player);
-        uint8_t position = calculate_selected_position(player_choice, unoccupied);
-        assert(position >= 0 && position < 64);
-        if (player_choice == 0) {
-            return 0;
-        } else if (number_of_player_choices == available + 1) {
-            return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
-        } else {
-            uint8_t building_num = ((player_choice - 1) / available) + 1;
-            uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
-            return building_num |
-                (calculate_selected_position(normalized_choice, unoccupied) << 3);
-        }
-    }
-
-
-    uint32_t index_of_maximum_cumulative_reward(float* cumulative_reward, 
-                                                uint32_t number_of_choices) {
-        uint16_t index_of_max = 0;
-        float max_cumulative_reward = 0.;
-        for (uint16_t i = 0; i < number_of_choices; i++) {
-            float new_cumulative_reward = cumulative_reward[i];
-            if (new_cumulative_reward > max_cumulative_reward) {
-                max_cumulative_reward = new_cumulative_reward;
-                index_of_max = i;
-            }
-        }
-        return index_of_max;
-    }
 
     template <uint32_t N>
     void update_cumulative_reward(tree_node<N>& tree_node,
@@ -240,9 +247,9 @@ namespace bot {
 //            std::cout << "new node count " << new_node_count << std::endl;
             construct_node(node, board);
             uint32_t index = mt() % node.number_of_choices;
-            uint16_t number_of_choices_a = calculate_number_of_choices(board.a);
-            uint16_t a_move = decode_move(index % number_of_choices_a, board.a);
-            uint16_t b_move = decode_move(index / number_of_choices_a, board.b);
+            uint16_t number_of_choices_a = node.calculate_number_of_choices(board.a);
+            uint16_t a_move = node.decode_move(index % number_of_choices_a, board.a);
+            uint16_t b_move = node.decode_move(index / number_of_choices_a, board.b);
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             reward = calculate_reward(board.a);
             float uniform_density = 1. / node.number_of_choices;
@@ -263,10 +270,10 @@ namespace bot {
             uint32_t index = select_index(mt, uniform_distribution,
                                           thread_state, selection_probability, node);
             // std::cout << "old node 1" << std::endl;
-            uint16_t number_of_choices_a = calculate_number_of_choices(board.a);
-            uint16_t a_move = decode_move(index % number_of_choices_a, board.a);
+            uint16_t number_of_choices_a = node.calculate_number_of_choices(board.a);
+            uint16_t a_move = node.decode_move(index % number_of_choices_a, board.a);
             // std::cout << "old node 2" << std::endl;
-            uint16_t b_move = decode_move(index / number_of_choices_a, board.b);
+            uint16_t b_move = node.decode_move(index / number_of_choices_a, board.b);
             // std::cout << "old node 3" << std::endl;
             advance_state(a_move, b_move, board.a, board.b, current_turn);
             // std::cout << "old node 4" << std::endl;
@@ -287,36 +294,26 @@ namespace bot {
     }
 
     template <uint32_t N>
-    void mcts_find_best_move(board_t& initial_board, 
-                             float* rewards,
-                             uint16_t current_turn,
-                             std::atomic<bool>& stop_search) {
+    uint16_t mcts_find_best_move(board_t& initial_board, uint16_t current_turn) {
         std::mt19937 mt(time(0));
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
         std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
-        tree_node<N>* root =
-            static_cast<tree_node<N>*>(allocate_memory(*memory, sizeof(tree_node<N>)));
+        uint32_t index = allocate_memory(*memory, sizeof(tree_node<N>));
+        tree_node<N>* root = static_cast<tree_node<N>*>(get_buffer_by_index(*memory, index));
         construct_node(*root, initial_board);
         uint32_t iterations = 0;
         float reward = 0.;
-        bool done = true;
-        while (!stop_search.compare_exchange_weak(done, done)) {
-            done = true;
+        while (iterations < 5000) {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, uniform_distribution, reward, *root, *memory, board_copy, current_turn);
             iterations++;
         }
-        std::memcpy(rewards, 
-                    root->get_cumulative_reward(*memory),
-                    root->number_of_choices * sizeof(float));
-
-       // uint16_t index_of_max_cumulative_reward = 
-       //      root->index_of_maximum_cumulative_reward(*memory);
-       //  uint16_t number_of_choices_a = calculate_number_of_choices(initial_board.a);
-        // root->decode_move(index_of_max_cumulative_reward 
-        //                          % number_of_choices_a, initial_board.a);
-        //std::cout << "move is " << move << std::endl;
+        uint16_t index_of_max_cumulative_reward = 
+            root->index_of_maximum_cumulative_reward(*memory);
+        uint16_t number_of_choices_a = root->calculate_number_of_choices(initial_board.a);
+        return root->decode_move(index_of_max_cumulative_reward 
+                                 % number_of_choices_a, initial_board.a);
     }
 
     uint16_t read_board(board_t& board, std::string& state_path) {
@@ -348,72 +345,12 @@ namespace bot {
         }
     }
 
-    void combine_rewards(float* aggregate, float* new_rewards, 
-                         uint32_t number_of_choices) {
-        for (uint32_t i = 0; i < number_of_choices; i++) {
-            aggregate[i] += new_rewards[i];
-        }
-    }
-
     void find_best_move_and_write_to_file()  {
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
-        uint32_t number_of_choices = 
-            calculate_number_of_choices(board.a) *
-            calculate_number_of_choices(board.b);
-        float* rewards = new float[number_of_choices];
-        std::fill(rewards, rewards + number_of_choices, 0.);
         if (current_turn != (uint16_t) -1) {
-            std::atomic<bool> stop_search(false);
-            std::atomic<uint16_t> move(0);
-            float* rewards1 = new float[number_of_choices];
-            float* rewards2 = new float[number_of_choices];
-            float* rewards3 = new float[number_of_choices];
-            float* rewards4 = new float[number_of_choices];
-            std::thread thr1(mcts_find_best_move<total_free_bytes>, 
-                            std::ref(board), 
-                            rewards1,
-                            current_turn,
-                            std::ref(stop_search));
-            std::thread thr2(mcts_find_best_move<total_free_bytes>, 
-                            std::ref(board), 
-                            rewards2,
-                            current_turn,
-                            std::ref(stop_search));
-            std::thread thr3(mcts_find_best_move<total_free_bytes>, 
-                            std::ref(board), 
-                            rewards3,
-                            current_turn,
-                            std::ref(stop_search));
-            std::thread thr4(mcts_find_best_move<total_free_bytes>, 
-                            std::ref(board), 
-                            rewards4,
-                            current_turn,
-                            std::ref(stop_search));
-            //mcts_find_best_move<total_free_bytes>(board, move, current_turn, stop_search);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1850));
-            stop_search.store(true);
-            thr1.join();
-            thr2.join();
-            thr3.join();
-            thr4.join();
-            combine_rewards(rewards, rewards1, number_of_choices);
-            combine_rewards(rewards, rewards2, number_of_choices);
-            combine_rewards(rewards, rewards3, number_of_choices);
-            combine_rewards(rewards, rewards4, number_of_choices);
-            delete[] rewards1;
-            delete[] rewards2;
-            delete[] rewards3;
-            delete[] rewards4;
-
-            uint32_t index_of_max_cumulative_reward = 
-                index_of_maximum_cumulative_reward(rewards, number_of_choices);
-            delete[] rewards;
-            uint16_t number_of_choices_a = calculate_number_of_choices(board.a);
-            move = decode_move(index_of_max_cumulative_reward 
-                        % number_of_choices_a, board.a);
-            std::cout << "now move is " << move << std::endl;
+            uint16_t move = mcts_find_best_move<total_free_bytes>(board, current_turn);
             uint8_t position = move >> 3;
             assert(position >= 0 && position < 64);
             uint8_t building_num = move & 7;
