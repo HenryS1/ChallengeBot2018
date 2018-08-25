@@ -107,12 +107,11 @@ namespace bot {
         uint16_t decode_move(uint16_t player_choice, player_t& player) {
             uint64_t unoccupied = ~find_occupied(player);
             uint8_t available = count_set_bits(unoccupied);
-            uint32_t number_of_player_choices = calculate_number_of_choices(player);
             uint8_t position = calculate_selected_position(player_choice, unoccupied);
             assert(position >= 0 && position < 64);
             if (player_choice == 0) {
                 return 0;
-            } else if (number_of_player_choices == available + 1) {
+            } else if (number_of_choices == available + 1) {
                 return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
             } else {
                 uint8_t building_num = ((player_choice - 1) / available) + 1;
