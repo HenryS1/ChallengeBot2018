@@ -383,30 +383,61 @@ namespace bot {
         }
     }
 
+
+
     void find_best_move_and_write_to_file()  {
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
+        uint16_t number_of_choices = calculate_number_of_choices(board.a);
+        //std::unique_ptr<float[]> aggregate_rewards(new float[number_of_choices]);
         std::atomic<bool> stop_search(false);
         if (current_turn != (uint16_t) -1) {
-            float* rewards = new float[calculate_number_of_choices(board.a)];
-            std::thread thr(mcts_find_best_move<total_free_bytes>,
-                            std::ref(stop_search),
-                            board,
-                            rewards,
-                            current_turn);
+            float* rewards1 = new float[number_of_choices];
+            float* rewards2 = new float[number_of_choices];
+            float* rewards3 = new float[number_of_choices];
+            float* rewards4 = new float[number_of_choices];
+            std::thread thr1(mcts_find_best_move<total_free_bytes>,
+                             std::ref(stop_search),
+                             board,
+                             rewards1,
+                             current_turn);
+
+            std::thread thr2(mcts_find_best_move<total_free_bytes>,
+                             std::ref(stop_search),
+                             board,
+                             rewards2,
+                             current_turn);
+
+            std::thread thr3(mcts_find_best_move<total_free_bytes>,
+                             std::ref(stop_search),
+                             board,
+                             rewards3,
+                             current_turn);
+
+            std::thread thr4(mcts_find_best_move<total_free_bytes>,
+                             std::ref(stop_search),
+                             board,
+                             rewards4,
+                             current_turn);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(1900));
             stop_search.store(true);
-            thr.join();
+            thr1.join();
+            thr2.join();
+            thr3.join();
+            thr4.join();
 
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
             uint16_t index_of_max_cumulative_reward = 
-                index_of_maximum_cumulative_reward(rewards, number_of_choices);
-            delete[] rewards;
-            uint16_t move = decode_move(index_of_max_cumulative_reward, board.a, number_of_choices);
+                index_of_maximum_cumulative_reward(rewards1, number_of_choices);
+            delete[] rewards1;
+            delete[] rewards2;
+            delete[] rewards3;
+            delete[] rewards4;
+            uint16_t move = decode_move(index_of_max_cumulative_reward,
+                                        board.a, number_of_choices);
             
-
             uint8_t position = move >> 3;
             assert(position >= 0 && position < 64);
             uint8_t building_num = move & 7;
