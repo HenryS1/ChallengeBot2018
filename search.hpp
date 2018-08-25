@@ -34,8 +34,6 @@ namespace bot {
             thread_state.free_index = 0;
         }
         uint32_t index_number = thread_state.buffer_index | (thread_state.free_index << 3);
-        // std::cout << "allocated " <<  
-        //     (thread_state.buffer_index * N + thread_state.free_index + bytes) << std::endl;
         assert(thread_state.free_index + bytes < total_free_bytes);
         thread_state.free_index += bytes;
         return index_number;
@@ -72,7 +70,7 @@ namespace bot {
     }
 
     uint16_t decode_move(uint16_t player_choice,
-                         player_t& player, 
+                         player_t& player,
                          uint16_t number_of_choices) {
         uint64_t unoccupied = ~find_occupied(player);
         uint8_t available = count_set_bits(unoccupied);
@@ -150,7 +148,7 @@ namespace bot {
 
     };
 
-    uint16_t index_of_maximum_cumulative_reward(float* cumulative_reward, 
+    uint16_t index_of_maximum_cumulative_reward(float* cumulative_reward,
                                                 uint16_t number_of_choices) {
         uint16_t index_of_max = 0;
         float max_cumulative_reward = 0.;
@@ -192,22 +190,18 @@ namespace bot {
         uint16_t bottom = 0, top = number_of_choices - 1, mid = number_of_choices / 2;
         bool less_condition = (mid > 0) && (selection < cdf[mid - 1]);
         bool greater_condition = (selection > cdf[mid]);
-//        std::cout << "gets here " << mid << std::endl;
-//        std::cout << "number of choices " << number_of_choices << std::endl;
         while (greater_condition || less_condition) {
             if (greater_condition) {
-//               std::cout << "greater" << std::endl;
                 bottom = mid;
                 uint32_t new_mid = (top + bottom) / 2;
                 mid = (new_mid & -(mid < new_mid)) | ((mid + 1) & -(mid == new_mid));
             } else if (less_condition) {
-//               std::cout << "less" << std::endl;
                 top = mid;
                 mid = (top + bottom) / 2;
             } else {
+                assert(mid >= 0 && mid < number_of_choices);
                 return mid;
             }
-//            std::cout << "mid is " << mid << std::endl;
             greater_condition = selection > cdf[mid];
             less_condition = (mid > 0) && (selection < cdf[mid - 1]);
         }
@@ -225,23 +219,16 @@ namespace bot {
         float gamma_over_k = gamma / player_node.number_of_choices;
         float* cumulative_reward = player_node.get_cumulative_reward(thread_state);
         for (uint32_t i = 0; i < player_node.number_of_choices; i++) {
-            //assert(cumulative_reward[i] >= 0);
             assert(gamma_over_k > 0);
             assert(1 - gamma > 0);
             cdf[i] = std::exp(gamma_over_k * cumulative_reward[i]);
             cdf[i] = (1 - gamma) * cdf[i] + gamma_over_k;
-            // if (!(cdf[i] > 0)) {
-            //     std::cout << "gamma over k " << gamma_over_k << std::endl;
-            //     std::cout << "total cumulative_reward "
-            //               << player_node.total_exponential_weight << std::endl;
-            //     std::cout << "what the " << cdf[i] << std::endl;
-            // }
             assert(cdf[i] > 0);
         }
         construct_cdf(cdf, player_node.number_of_choices);
-        uint32_t selection = sample(mt, uniform_distribution, 
+        uint32_t selection = sample(mt, uniform_distribution,
                                     player_node.number_of_choices, cdf);
-        selection_probability = selection == 0 ? cdf[0] : 
+        selection_probability = selection == 0 ? cdf[0] :
             cdf[selection] - cdf[selection - 1];
         assert(selection_probability > 0);
         return selection;
@@ -271,9 +258,7 @@ namespace bot {
                  board_t& board,
                  uint16_t current_turn) {
         if (a_node.number_of_choices == 0) {
-//            std::cout << "new node" << std::endl;
             new_node_count++;
-//            std::cout << "new node count " << new_node_count << std::endl;
             construct_player_node(a_node, board.a);
             construct_player_node(b_node, board.b);
             uint16_t a_index = mt() % a_node.number_of_choices;
@@ -286,39 +271,24 @@ namespace bot {
             a_reward = calculate_reward(board.a, board.b);
             float a_uniform_density = 1. / a_node.number_of_choices;
             update_cumulative_reward(a_node, thread_state, a_reward, a_uniform_density, a_index);
-            
+
             float b_uniform_density = 1. / b_node.number_of_choices;
             update_cumulative_reward(b_node, thread_state, b_reward, b_uniform_density, b_index);
-//            std::cout << "end of new node " << result << std::endl;
         } else {
-            // std::cout << "starting" << std::endl;
-            // std::cout << "old node " << node << std::endl;
-            // if (!node.already_visited) {
-            //     for (uint32_t i = 0; i < node.number_of_choices; i++) {
-            //         assert(node.get_children(thread_state)[i].number_of_choices == 0);
-            //     }
-            // }
-            // node.already_visited = true;
-            // std::cout << "done" << std::endl;
-            // std::cout << "old node " << node << std::endl;
             float a_selection_probability;
             float b_selection_probability;
             uint16_t a_index = select_index(mt, uniform_distribution,
                                           thread_state, a_selection_probability, a_node);
             assert(a_index < a_node.number_of_choices);
-            
+
             uint16_t b_index = select_index(mt, uniform_distribution,
                                             thread_state, b_selection_probability, b_node);
 
             assert(b_index < b_node.number_of_choices);
 
             uint16_t a_move = decode_move(a_index, board.a, a_node.number_of_choices);
-            // std::cout << "old node 2" << std::endl;
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
-            // std::cout << "old node 3" << std::endl;
             advance_state(a_move, b_move, board.a, board.b, current_turn);
-            // std::cout << "old node 4" << std::endl;
-            // std::cout << "chose index " << index << " " << node->number_of_choices << std::endl;
             assert(a_index >= 0 && a_index < a_node.number_of_choices);
             sm_mcts(mt,
                     uniform_distribution,
@@ -329,13 +299,11 @@ namespace bot {
                     thread_state,
                     board,
                     current_turn + 1);
-            // std::cout << "old node 5" << std::endl;
             assert(a_selection_probability > 0);
             update_cumulative_reward(a_node, thread_state, a_reward,
                                      a_selection_probability, a_index);
             update_cumulative_reward(b_node, thread_state, b_reward,
                                      b_selection_probability, b_index);
-            // std::cout << "end of old node" << std::endl;
         }
     }
 
@@ -360,8 +328,8 @@ namespace bot {
     }
 
     template <uint32_t N>
-    void mcts_find_best_move(std::atomic<bool>& stop_search, 
-                             board_t initial_board, 
+    void mcts_find_best_move(std::atomic<bool>& stop_search,
+                             board_t initial_board,
                              float* rewards,
                              uint16_t current_turn) {
         std::mt19937 mt(time(0));
@@ -369,9 +337,9 @@ namespace bot {
         std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
         uint32_t a_index = allocate_memory(*memory, sizeof(player_node<N>));
         uint32_t b_index = allocate_memory(*memory, sizeof(player_node<N>));
-        player_node<N>* a_root = 
+        player_node<N>* a_root =
             static_cast<player_node<N>*>(get_buffer_by_index(*memory, a_index));
-        player_node<N>* b_root = 
+        player_node<N>* b_root =
             static_cast<player_node<N>*>(get_buffer_by_index(*memory, b_index));
         construct_player_node(*a_root, initial_board.a);
         construct_player_node(*b_root, initial_board.b);
@@ -383,7 +351,7 @@ namespace bot {
             done = true;
             board_t board_copy;
             copy_board(initial_board, board_copy);
-            sm_mcts(mt, uniform_distribution, a_reward, 
+            sm_mcts(mt, uniform_distribution, a_reward,
                     b_reward, *a_root, *b_root, *memory, board_copy, current_turn);
             iterations++;
         }
@@ -420,8 +388,8 @@ namespace bot {
         }
     }
 
-    void combine_rewards(float* aggregate, 
-                         float* thread_rewards, 
+    void combine_rewards(float* aggregate,
+                         float* thread_rewards,
                          uint16_t number_of_choices) {
         float *aggregate_it, *thread_it;
         for (aggregate_it = aggregate, thread_it = thread_rewards;
@@ -430,7 +398,7 @@ namespace bot {
         }
     }
 
-    void find_best_move_and_write_to_file()  {       
+    void find_best_move_and_write_to_file()  {
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
@@ -494,7 +462,7 @@ namespace bot {
             combine_rewards(&(aggregate_rewards[0]), rewards4, number_of_choices);
 
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
-            uint16_t index_of_max_cumulative_reward = 
+            uint16_t index_of_max_cumulative_reward =
                 index_of_maximum_cumulative_reward(&(aggregate_rewards[0]), number_of_choices);
             delete[] rewards1;
             delete[] rewards2;
@@ -502,7 +470,7 @@ namespace bot {
             delete[] rewards4;
             uint16_t move = decode_move(index_of_max_cumulative_reward,
                                         board.a, number_of_choices);
-            
+
             uint8_t position = move >> 3;
             assert(position >= 0 && position < 64);
             uint8_t building_num = move & 7;
@@ -513,6 +481,5 @@ namespace bot {
     }
 
 }
-
 
 #endif
