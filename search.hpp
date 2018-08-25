@@ -84,7 +84,7 @@ namespace bot {
             return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
         } else if (number_of_choices == (available * 4) + 2) {
             if (player_choice == 1) {
-                return 4;
+                return 5;
             } else {
                 uint8_t building_num = ((player_choice - 1) / available) + 1;
                 uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
