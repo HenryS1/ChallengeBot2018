@@ -383,14 +383,26 @@ namespace bot {
         }
     }
 
-
+    void combine_rewards(float* aggregate, 
+                         float* thread_rewards, 
+                         uint16_t number_of_choices) {
+        float *aggregate_it, *thread_it;
+        for (aggregate_it = aggregate, thread_it = thread_rewards;
+             aggregate_it != aggregate + number_of_choices; (aggregate_it++, thread_it++)) {
+            *aggregate_it += *thread_it;
+        }
+    }
 
     void find_best_move_and_write_to_file()  {
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
         uint16_t number_of_choices = calculate_number_of_choices(board.a);
-        //std::unique_ptr<float[]> aggregate_rewards(new float[number_of_choices]);
+        std::unique_ptr<float[]> aggregate_rewards(new float[number_of_choices]);
+        for (auto it = &(aggregate_rewards[0]);
+             it != &(aggregate_rewards[number_of_choices]); it++) {
+            *it = 0.;
+        }
         std::atomic<bool> stop_search(false);
         if (current_turn != (uint16_t) -1) {
             float* rewards1 = new float[number_of_choices];
@@ -428,9 +440,14 @@ namespace bot {
             thr3.join();
             thr4.join();
 
+            combine_rewards(&(aggregate_rewards[0]), rewards1, number_of_choices);
+            combine_rewards(&(aggregate_rewards[0]), rewards2, number_of_choices);
+            combine_rewards(&(aggregate_rewards[0]), rewards3, number_of_choices);
+            combine_rewards(&(aggregate_rewards[0]), rewards4, number_of_choices);
+
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
             uint16_t index_of_max_cumulative_reward = 
-                index_of_maximum_cumulative_reward(rewards1, number_of_choices);
+                index_of_maximum_cumulative_reward(&(aggregate_rewards[0]), number_of_choices);
             delete[] rewards1;
             delete[] rewards2;
             delete[] rewards3;
