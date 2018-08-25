@@ -339,6 +339,26 @@ namespace bot {
         }
     }
 
+    uint64_t find_attack_buildings(player_t& player) {
+        uint64_t attack_buildings = 0;
+        for (uint8_t i = 0; i < 4; i++) {
+            attack_buildings |= player.attack_buildings[i];
+        }
+        return attack_buildings | player.attack_building_queue;
+    }
+
+    uint8_t find_energy_building_row(board_t& board) {
+        uint64_t unoccupied = ~find_occupied(board.a);
+        uint64_t b_attack_buildings = find_attack_buildings(board.b);
+        for (uint8_t i = 0; i < 8; i++) {
+            if ((((uint64_t)1 << (8 * i)) & unoccupied)
+                && (!((b_attack_buildings >> (8 * i)) & 7))) {
+                return i;
+            }
+        }
+        return 65;
+    }
+
     template <uint32_t N>
     void mcts_find_best_move(std::atomic<bool>& stop_search, 
                              board_t initial_board, 
@@ -413,7 +433,7 @@ namespace bot {
         }
     }
 
-    void find_best_move_and_write_to_file()  {
+    void find_best_move_and_write_to_file()  {       
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
@@ -422,6 +442,13 @@ namespace bot {
         for (auto it = &(aggregate_rewards[0]);
              it != &(aggregate_rewards[number_of_choices]); it++) {
             *it = 0.;
+        }
+        if (current_turn < 13) {
+            uint8_t energy_building_row = find_energy_building_row(board);
+            if (energy_building_row < 64) {
+                write_to_file(energy_building_row, 0, 3);
+                return;
+            }
         }
         std::atomic<bool> stop_search(false);
         if (current_turn != (uint16_t) -1) {
