@@ -389,9 +389,6 @@ namespace bot {
         }
         std::memcpy(rewards, a_root->get_cumulative_reward(*memory),
                     a_root->number_of_choices * sizeof(float));
-        // uint16_t index_of_max_cumulative_reward = 
-        //     a_root->index_of_maximum_cumulative_reward(*memory);
-        // return a_root->decode_move(index_of_max_cumulative_reward, initial_board.a);
     }
 
     uint16_t read_board(board_t& board, std::string& state_path) {
@@ -444,6 +441,10 @@ namespace bot {
             *it = 0.;
         }
         if (current_turn < 13) {
+            if (board.a.energy < 20) {
+                write_to_file(0, 0, 0);
+                return;
+            }
             uint8_t energy_building_row = find_energy_building_row(board);
             if (energy_building_row < 64) {
                 write_to_file(energy_building_row, 0, 3);
