@@ -225,11 +225,6 @@ namespace bot {
     }
 
     template <uint32_t N>
-    tree_node<N>* construct_node(tree_node<N>& node, board_t& board) {
-        return new (&node) tree_node<N>(board.a, board.b);
-    }
-
-    template <uint32_t N>
     player_node<N>* construct_player_node(player_node<N>& node, player_t& player) {
         return new (&node) player_node<N>(player);
     }
@@ -323,9 +318,12 @@ namespace bot {
         std::mt19937 mt(time(0));
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
         std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
-        uint32_t index = allocate_memory(*memory, sizeof(tree_node<N>));
-        player_node<N>* a_root = static_cast<player_node<N>*>(get_buffer_by_index(*memory, index));
-        player_node<N>* b_root = static_cast<player_node<N>*>(get_buffer_by_index(*memory, index));
+        uint32_t a_index = allocate_memory(*memory, sizeof(player_node<N>));
+        uint32_t b_index = allocate_memory(*memory, sizeof(player_node<N>));
+        player_node<N>* a_root = 
+            static_cast<player_node<N>*>(get_buffer_by_index(*memory, a_index));
+        player_node<N>* b_root = 
+            static_cast<player_node<N>*>(get_buffer_by_index(*memory, b_index));
         construct_player_node(*a_root, initial_board.a);
         construct_player_node(*b_root, initial_board.b);
         uint32_t iterations = 0;
