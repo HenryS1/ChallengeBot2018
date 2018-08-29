@@ -5,13 +5,13 @@
 #include <assert.h>
 #include <stdint.h>
 #include <algorithm>
+#include <cmath>
 #include <random>
 #include <time.h>
 
 namespace bot {
 
-    const float uniform_weight = std::exp(0);
-    const float gamma = 0.05;
+    const float exploration = std::sqrt(2);
     const uint32_t total_free_bytes = 500000000;
 
     template <uint32_t N>
@@ -108,130 +108,46 @@ namespace bot {
 
     template <uint32_t N>
     struct player_node {
-        uint32_t cumulative_reward = (uint32_t)-1;
         uint16_t number_of_choices = 0;
         uint32_t children = (uint32_t)-1;
-        float total_exponential_weight = 0.;
+        uint32_t simulations = 0;
+        uint32_t wins = 0;
+
+        player_node() {}
 
         explicit player_node(player_t& player) {
             number_of_choices = calculate_number_of_choices(player);
         }
 
-        void initialize_total_exponential_weight() {
-            total_exponential_weight = uniform_weight * number_of_choices;
-        }
-
-        player_node* get_children(thread_state<N>& thread_state) {
+        player_node<N>* get_children(thread_state<N>& thread_state) {
             if (children == (uint32_t)-1) {
                 children = allocate_memory(thread_state, number_of_choices * sizeof(player_node));
             }
             player_node<N>* result =
                 static_cast<player_node<N>*>(get_buffer_by_index(thread_state, children));
-            for (auto node = result; node != result + number_of_choices; node++) {
+            for (auto node = result; node != result + number_of_choices; ++node) {
                 node->number_of_choices = 0;
             }
             return result;
         }
 
-        float* allocate_cdf(thread_state<N>& thread_state) {
-            float* cdf = thread_state.distribution;
-            return cdf;
-        }
-
-        float* get_cumulative_reward(thread_state<N>& thread_state) {
-            if (cumulative_reward == (uint32_t)-1) {
-                cumulative_reward = allocate_memory(thread_state,
-                                                    number_of_choices * sizeof(float));
-            }
-            return static_cast<float*>(get_buffer_by_index(thread_state, cumulative_reward));
-        }
-
     };
 
-    uint16_t index_of_maximum_cumulative_reward(float* cumulative_reward,
-                                                uint16_t number_of_choices) {
-        uint16_t index_of_max = 0;
-        float max_cumulative_reward = 0.;
-        for (uint16_t i = 0; i < number_of_choices; i++) {
-            float new_cumulative_reward = cumulative_reward[i];
-            if (new_cumulative_reward > max_cumulative_reward) {
-                max_cumulative_reward = new_cumulative_reward;
-                index_of_max = i;
-            }
-        }
-        return index_of_max;
-    }
-
-
     template <uint32_t N>
-    void update_cumulative_reward(player_node<N>& player_node,
-                                  thread_state<N>& thread_state,
-                                  float reward,
-                                  float selection_probability,
-                                  uint16_t selection) {
+    void update_reward(player_node<N>& node,
+                       thread_state<N>& thread_state,
+                       uint8_t won,
+                       uint16_t selection) {
 
-        float cumulative_reward_update_value = reward / selection_probability;
-        float* cumulative_reward = player_node.get_cumulative_reward(thread_state);
-        cumulative_reward[selection] += cumulative_reward_update_value;
-        assert(selection < player_node.number_of_choices);
+        player_node<N>* selected_node = node.get_children(thread_state) + selection;
+        selected_node->wins += won;
+        selected_node->simulations++;
+        node.simulations++;
     }
 
-    void construct_cdf(float* cdf, uint32_t number_of_choices) {
-        for (uint32_t i = 1; i < number_of_choices; i++) {
-            cdf[i] += cdf[i - 1];
-        }
-    }
-
-    uint32_t sample(std::mt19937& mt,
-                    std::uniform_real_distribution<float>& uniform_distribution,
-                    uint32_t number_of_choices,
-                    float* cdf) {
-        float selection = uniform_distribution(mt) * cdf[number_of_choices - 1];
-        uint16_t bottom = 0, top = number_of_choices - 1, mid = number_of_choices / 2;
-        bool less_condition = (mid > 0) && (selection < cdf[mid - 1]);
-        bool greater_condition = (selection > cdf[mid]);
-        while (greater_condition || less_condition) {
-            if (greater_condition) {
-                bottom = mid;
-                uint32_t new_mid = (top + bottom) / 2;
-                mid = (new_mid & -(mid < new_mid)) | ((mid + 1) & -(mid == new_mid));
-            } else if (less_condition) {
-                top = mid;
-                mid = (top + bottom) / 2;
-            } else {
-                assert(mid >= 0 && mid < number_of_choices);
-                return mid;
-            }
-            greater_condition = selection > cdf[mid];
-            less_condition = (mid > 0) && (selection < cdf[mid - 1]);
-        }
-        return mid;
-    }
-
-    template <uint32_t N>
-    uint32_t select_index(std::mt19937& mt,
-                          std::uniform_real_distribution<float>& uniform_distribution,
-                          thread_state<N>& thread_state,
-                          float& selection_probability,
-                          player_node<N>& player_node) {
-
-        float* cdf = player_node.allocate_cdf(thread_state);
-        float gamma_over_k = gamma / player_node.number_of_choices;
-        float* cumulative_reward = player_node.get_cumulative_reward(thread_state);
-        for (uint32_t i = 0; i < player_node.number_of_choices; i++) {
-            assert(gamma_over_k > 0);
-            assert(1 - gamma > 0);
-            cdf[i] = std::exp(gamma_over_k * cumulative_reward[i]);
-            cdf[i] = (1 - gamma) * cdf[i] + gamma_over_k;
-            assert(cdf[i] > 0);
-        }
-        construct_cdf(cdf, player_node.number_of_choices);
-        uint32_t selection = sample(mt, uniform_distribution,
-                                    player_node.number_of_choices, cdf);
-        selection_probability = selection == 0 ? cdf[0] :
-            cdf[selection] - cdf[selection - 1];
-        assert(selection_probability > 0);
-        return selection;
+    inline float uct(uint16_t node_wins, uint16_t node_simulations, uint16_t total_simulations) {
+        return (float) node_wins / (float) node_simulations +
+            exploration * std::sqrt(std::log(total_simulations) / node_simulations);
     }
 
     template <uint32_t N>
@@ -239,50 +155,80 @@ namespace bot {
         return new (&node) player_node<N>(player);
     }
 
-    float calculate_reward(player_t& me, player_t& other) {
-        if (me.health == 0) return -1.;
-        else if (other.health == 0) return 1.;
-        else return 0.;
+    uint8_t calculate_reward(player_t& other) {
+        if (other.health <= 0) return 1;
+        else return 0;
     }
 
-    uint64_t new_node_count = 0;
+    template <uint32_t N>
+    uint32_t select_index(player_node<N>* choices,
+                          uint16_t number_of_choices,
+                          uint32_t total_simulations) {
+
+        float best = 0.;
+        uint16_t best_index = 0;
+        uint16_t current_index = 0;
+        for (auto node = choices;
+             node != choices + number_of_choices; ++node) {
+            uint32_t simulations = node->simulations;
+            if (simulations == 0) {
+                return current_index;
+            }
+            float node_value = uct(node->wins, simulations, total_simulations);
+            // std::cout << "node wins " << node->wins << std::endl;
+            // std::cout << "node simulations " << node->simulations << std::endl;
+            // std::cout << "best value " << best << std::endl;
+            // std::cout << "best index " << best_index << std::endl;
+            // std::cout << "current value " << node_value << std::endl;
+            
+            if (node_value > best) {
+                best = node_value;
+                best_index = current_index;
+    // std::cout << "node value " << node_value << std::endl;
+                // std::cout << "index " << current_index << std::endl;
+            }
+            current_index++;
+        }
+
+        return best_index;
+    }
 
     template <uint32_t N>
     void sm_mcts(std::mt19937& mt,
-                 std::uniform_real_distribution<float>& uniform_distribution,
-                 float& a_reward,
-                 float& b_reward,
+                 uint8_t& a_reward,
+                 uint8_t& b_reward,
                  player_node<N>& a_node,
                  player_node<N>& b_node,
                  thread_state<N>& thread_state,
                  board_t& board,
                  uint16_t current_turn) {
         if (a_node.number_of_choices == 0) {
-            new_node_count++;
             construct_player_node(a_node, board.a);
             construct_player_node(b_node, board.b);
             uint16_t a_index = mt() % a_node.number_of_choices;
+//            std::cout << "a index" << a_index << std::endl;
             uint16_t a_move = decode_move(a_index, board.a, a_node.number_of_choices);
 
             uint16_t b_index = mt() % b_node.number_of_choices;
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
+//            std::cout << "b index" << b_index << std::endl;
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
-            a_reward = calculate_reward(board.a, board.b);
-            float a_uniform_density = 1. / a_node.number_of_choices;
-            update_cumulative_reward(a_node, thread_state, a_reward, a_uniform_density, a_index);
+            a_reward = calculate_reward(board.b);
+            update_reward(a_node, thread_state, a_reward, a_index);
 
-            float b_uniform_density = 1. / b_node.number_of_choices;
-            update_cumulative_reward(b_node, thread_state, b_reward, b_uniform_density, b_index);
+            update_reward(b_node, thread_state, b_reward, b_index);
+
+//            std::cout << "simulations " << a_node.simulations << std::endl;
         } else {
-            float a_selection_probability;
-            float b_selection_probability;
-            uint16_t a_index = select_index(mt, uniform_distribution,
-                                          thread_state, a_selection_probability, a_node);
+            uint16_t a_index = select_index(a_node.get_children(thread_state),
+                                            a_node.number_of_choices,
+                                            a_node.simulations);
             assert(a_index < a_node.number_of_choices);
 
-            uint16_t b_index = select_index(mt, uniform_distribution,
-                                            thread_state, b_selection_probability, b_node);
+            uint16_t b_index = select_index(b_node.get_children(thread_state),
+                                            b_node.number_of_choices,
+                                            b_node.simulations);
 
             assert(b_index < b_node.number_of_choices);
 
@@ -291,7 +237,6 @@ namespace bot {
             advance_state(a_move, b_move, board.a, board.b, current_turn);
             assert(a_index >= 0 && a_index < a_node.number_of_choices);
             sm_mcts(mt,
-                    uniform_distribution,
                     a_reward,
                     b_reward,
                     a_node.get_children(thread_state)[a_index],
@@ -299,11 +244,8 @@ namespace bot {
                     thread_state,
                     board,
                     current_turn + 1);
-            assert(a_selection_probability > 0);
-            update_cumulative_reward(a_node, thread_state, a_reward,
-                                     a_selection_probability, a_index);
-            update_cumulative_reward(b_node, thread_state, b_reward,
-                                     b_selection_probability, b_index);
+            update_reward(a_node, thread_state, a_reward, a_index);
+            update_reward(b_node, thread_state, b_reward, b_index);
         }
     }
 
@@ -330,7 +272,7 @@ namespace bot {
     template <uint32_t N>
     void mcts_find_best_move(std::atomic<bool>& stop_search,
                              board_t initial_board,
-                             float* rewards,
+                             player_node<N>* choices,
                              uint16_t current_turn) {
         std::mt19937 mt(time(0));
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
@@ -343,19 +285,17 @@ namespace bot {
             static_cast<player_node<N>*>(get_buffer_by_index(*memory, b_index));
         construct_player_node(*a_root, initial_board.a);
         construct_player_node(*b_root, initial_board.b);
-        uint32_t iterations = 0;
-        float a_reward = 0.;
-        float b_reward = 0.;
+        uint8_t a_reward = 0.;
+        uint8_t b_reward = 0.;
         bool done = true;
         while (!stop_search.compare_exchange_weak(done, done)) {
             done = true;
             board_t board_copy;
             copy_board(initial_board, board_copy);
-            sm_mcts(mt, uniform_distribution, a_reward,
+            sm_mcts(mt, a_reward,
                     b_reward, *a_root, *b_root, *memory, board_copy, current_turn);
-            iterations++;
         }
-        std::memcpy(rewards, a_root->get_cumulative_reward(*memory),
+        std::memcpy(choices, a_root->get_children(*memory),
                     a_root->number_of_choices * sizeof(float));
     }
 
@@ -388,25 +328,31 @@ namespace bot {
         }
     }
 
-    void combine_rewards(float* aggregate,
-                         float* thread_rewards,
-                         uint16_t number_of_choices) {
-        float *aggregate_it, *thread_it;
+    template <uint32_t N>
+    void combine_choices(player_node<N>* aggregate,
+                         player_node<N>* thread_rewards,
+                         uint16_t number_of_choices,
+                         uint32_t& total_simulations) {
+        player_node<N> *aggregate_it, *thread_it;
         for (aggregate_it = aggregate, thread_it = thread_rewards;
              aggregate_it != aggregate + number_of_choices; (aggregate_it++, thread_it++)) {
-            *aggregate_it += *thread_it;
+            aggregate_it->wins += thread_it->wins;
+            aggregate_it->simulations += thread_it->simulations;
+            total_simulations += thread_it->simulations;
         }
     }
 
+    template <uint32_t N>
     void find_best_move_and_write_to_file()  {
         board_t board;
         std::string state_path("state.json");
         uint16_t current_turn = read_board(board, state_path);
         uint16_t number_of_choices = calculate_number_of_choices(board.a);
-        std::unique_ptr<float[]> aggregate_rewards(new float[number_of_choices]);
-        for (auto it = &(aggregate_rewards[0]);
-             it != &(aggregate_rewards[number_of_choices]); it++) {
-            *it = 0.;
+        std::unique_ptr<player_node<N>[]>
+            aggregate_choices(new player_node<N>[number_of_choices]);
+        for (auto it = &(aggregate_choices[0]);
+             it != &(aggregate_choices[number_of_choices]); it++) {
+            new (it) player_node<N>();
         }
         if (current_turn < 13) {
             if (board.a.energy < 20) {
@@ -421,54 +367,73 @@ namespace bot {
         }
         std::atomic<bool> stop_search(false);
         if (current_turn != (uint16_t) -1) {
-            float* rewards1 = new float[number_of_choices];
-            float* rewards2 = new float[number_of_choices];
-            float* rewards3 = new float[number_of_choices];
-            float* rewards4 = new float[number_of_choices];
-            std::thread thr1(mcts_find_best_move<total_free_bytes>,
+            player_node<N>* choices1 =
+                new player_node<N>[number_of_choices];
+            player_node<N>* choices2 =
+                new player_node<N>[number_of_choices];
+            player_node<N>* choices3 =
+                new player_node<N>[number_of_choices];
+            player_node<N>* choices4 =
+                new player_node<N>[number_of_choices];
+
+            std::thread thr1(mcts_find_best_move<N>,
                              std::ref(stop_search),
                              board,
-                             rewards1,
+                             choices1,
                              current_turn);
 
-            std::thread thr2(mcts_find_best_move<total_free_bytes>,
-                             std::ref(stop_search),
-                             board,
-                             rewards2,
-                             current_turn);
+            // std::thread thr2(mcts_find_best_move<N>,
+            //                  std::ref(stop_search),
+            //                  board,
+            //                  choices2,
+            //                  current_turn);
 
-            std::thread thr3(mcts_find_best_move<total_free_bytes>,
-                             std::ref(stop_search),
-                             board,
-                             rewards3,
-                             current_turn);
+            // std::thread thr3(mcts_find_best_move<N>,
+            //                  std::ref(stop_search),
+            //                  board,
+            //                  choices3,
+            //                  current_turn);
 
-            std::thread thr4(mcts_find_best_move<total_free_bytes>,
-                             std::ref(stop_search),
-                             board,
-                             rewards4,
-                             current_turn);
+            // std::thread thr4(mcts_find_best_move<N>,
+            //                  std::ref(stop_search),
+            //                  board,
+            //                  choices4,
+            //                  current_turn);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(1900));
             stop_search.store(true);
             thr1.join();
-            thr2.join();
-            thr3.join();
-            thr4.join();
+            // thr2.join();
+            // thr3.join();
+            // thr4.join();
 
-            combine_rewards(&(aggregate_rewards[0]), rewards1, number_of_choices);
-            combine_rewards(&(aggregate_rewards[0]), rewards2, number_of_choices);
-            combine_rewards(&(aggregate_rewards[0]), rewards3, number_of_choices);
-            combine_rewards(&(aggregate_rewards[0]), rewards4, number_of_choices);
+            uint32_t total_simulations = 0;
+
+            combine_choices(&(aggregate_choices[0]),
+                            choices1,
+                            number_of_choices,
+                            total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices2,
+                            number_of_choices,
+                            total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices3,
+                            number_of_choices,
+                            total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices4,
+                            number_of_choices,
+                            total_simulations);
 
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
-            uint16_t index_of_max_cumulative_reward =
-                index_of_maximum_cumulative_reward(&(aggregate_rewards[0]), number_of_choices);
-            delete[] rewards1;
-            delete[] rewards2;
-            delete[] rewards3;
-            delete[] rewards4;
-            uint16_t move = decode_move(index_of_max_cumulative_reward,
+            uint16_t index_of_max_reward =
+                select_index(&(aggregate_choices[0]), number_of_choices, total_simulations);
+            delete[] choices1;
+            delete[] choices2;
+            delete[] choices3;
+            delete[] choices4;
+            uint16_t move = decode_move(index_of_max_reward,
                                         board.a, number_of_choices);
 
             uint8_t position = move >> 3;
