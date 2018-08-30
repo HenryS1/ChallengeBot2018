@@ -12,6 +12,7 @@
 namespace bot {
 
     const float exploration = std::sqrt(2);
+    uint64_t new_node_count = 0;
     const uint32_t total_free_bytes = 500000000;
 
     template <uint32_t N>
@@ -48,7 +49,9 @@ namespace bot {
         uint16_t number_of_choices;
         uint64_t unoccupied = ~find_occupied(player);
         uint8_t available = count_set_bits(unoccupied);
-        if (player.energy < 20) {
+        if (available == 0 && player.energy < 100) {
+            number_of_choices = 1;
+        } else if (player.energy < 20) {
             number_of_choices = 1;
         } else if (player.energy < 30) {
             number_of_choices = available + 1;
@@ -110,10 +113,15 @@ namespace bot {
     struct player_node {
         uint16_t number_of_choices = 0;
         uint32_t children = (uint32_t)-1;
-        uint32_t simulations = 0;
+        uint32_t simulations = 1;
         uint32_t wins = 0;
 
-        player_node() {}
+        player_node() {
+            number_of_choices = 0;
+            children = (uint32_t)-1;
+            simulations = 1;
+            wins = 0;
+        }
 
         explicit player_node(player_t& player) {
             number_of_choices = calculate_number_of_choices(player);
@@ -122,12 +130,18 @@ namespace bot {
         player_node<N>* get_children(thread_state<N>& thread_state) {
             if (children == (uint32_t)-1) {
                 children = allocate_memory(thread_state, number_of_choices * sizeof(player_node));
+                player_node<N>* result =
+                    static_cast<player_node<N>*>(get_buffer_by_index(thread_state, children));
+                for (auto node = result; node != result + number_of_choices; ++node) {
+                    new (node) player_node();
+                    // node->number_of_choices = 0;
+                    // node->simulations = 0;
+                    // node->wins = 0;
+                }
+                return result;
             }
             player_node<N>* result =
                 static_cast<player_node<N>*>(get_buffer_by_index(thread_state, children));
-            for (auto node = result; node != result + number_of_choices; ++node) {
-                node->number_of_choices = 0;
-            }
             return result;
         }
 
@@ -135,13 +149,13 @@ namespace bot {
 
     template <uint32_t N>
     void update_reward(player_node<N>& node,
-                       thread_state<N>& thread_state,
-                       uint8_t won,
-                       uint16_t selection) {
+//                       thread_state<N>& thread_state,
+                       uint8_t won) {
 
-        player_node<N>* selected_node = node.get_children(thread_state) + selection;
-        selected_node->wins += won;
-        selected_node->simulations++;
+        // player_node<N>* selected_node = node.get_children(thread_state) + selection;
+        // selected_node->wins += won;
+        // selected_node->simulations++;
+        node.wins += won;
         node.simulations++;
     }
 
@@ -175,17 +189,9 @@ namespace bot {
                 return current_index;
             }
             float node_value = uct(node->wins, simulations, total_simulations);
-            // std::cout << "node wins " << node->wins << std::endl;
-            // std::cout << "node simulations " << node->simulations << std::endl;
-            // std::cout << "best value " << best << std::endl;
-            // std::cout << "best index " << best_index << std::endl;
-            // std::cout << "current value " << node_value << std::endl;
-            
             if (node_value > best) {
                 best = node_value;
                 best_index = current_index;
-    // std::cout << "node value " << node_value << std::endl;
-                // std::cout << "index " << current_index << std::endl;
             }
             current_index++;
         }
@@ -203,24 +209,25 @@ namespace bot {
                  board_t& board,
                  uint16_t current_turn) {
         if (a_node.number_of_choices == 0) {
+            new_node_count++;
             construct_player_node(a_node, board.a);
             construct_player_node(b_node, board.b);
+
             uint16_t a_index = mt() % a_node.number_of_choices;
-//            std::cout << "a index" << a_index << std::endl;
             uint16_t a_move = decode_move(a_index, board.a, a_node.number_of_choices);
 
             uint16_t b_index = mt() % b_node.number_of_choices;
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
-//            std::cout << "b index" << b_index << std::endl;
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
             a_reward = calculate_reward(board.b);
-            update_reward(a_node, thread_state, a_reward, a_index);
 
-            update_reward(b_node, thread_state, b_reward, b_index);
+            update_reward(a_node, a_reward);
 
-//            std::cout << "simulations " << a_node.simulations << std::endl;
+            update_reward(b_node, b_reward);
+
         } else {
+
             uint16_t a_index = select_index(a_node.get_children(thread_state),
                                             a_node.number_of_choices,
                                             a_node.simulations);
@@ -244,8 +251,10 @@ namespace bot {
                     thread_state,
                     board,
                     current_turn + 1);
-            update_reward(a_node, thread_state, a_reward, a_index);
-            update_reward(b_node, thread_state, b_reward, b_index);
+
+            update_reward(a_node, a_reward);
+
+            update_reward(b_node, b_reward);
         }
     }
 
@@ -407,24 +416,25 @@ namespace bot {
             // thr3.join();
             // thr4.join();
 
+
             uint32_t total_simulations = 0;
 
             combine_choices(&(aggregate_choices[0]),
                             choices1,
                             number_of_choices,
                             total_simulations);
-            combine_choices(&(aggregate_choices[0]),
-                            choices2,
-                            number_of_choices,
-                            total_simulations);
-            combine_choices(&(aggregate_choices[0]),
-                            choices3,
-                            number_of_choices,
-                            total_simulations);
-            combine_choices(&(aggregate_choices[0]),
-                            choices4,
-                            number_of_choices,
-                            total_simulations);
+            // combine_choices(&(aggregate_choices[0]),
+            //                 choices2,
+            //                 number_of_choices,
+            //                 total_simulations);
+            // combine_choices(&(aggregate_choices[0]),
+            //                 choices3,
+            //                 number_of_choices,
+            //                 total_simulations);
+            // combine_choices(&(aggregate_choices[0]),
+            //                 choices4,
+            //                 number_of_choices,
+            //                 total_simulations);
 
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
             uint16_t index_of_max_reward =
