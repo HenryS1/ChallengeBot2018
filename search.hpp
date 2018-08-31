@@ -32,7 +32,7 @@ namespace bot {
     uint32_t allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
         if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 7) {
             thread_state.buffer_index++;
-            thread_state.free_index = 0;
+n            thread_state.free_index = 0;
         }
         uint32_t index_number = thread_state.buffer_index | (thread_state.free_index << 3);
         assert(thread_state.free_index + bytes < total_free_bytes);
@@ -87,8 +87,8 @@ namespace bot {
             if (player_choice == 1) {
                 return 5;
             } else {
-                uint8_t building_num = ((player_choice - 1) / available) + 1;
-                uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
+                uint8_t building_num = ((player_choice - 2) / available) + 1;
+                uint16_t normalized_choice = ((player_choice - 2) % available) + 1;
                 return building_num |
                     (calculate_selected_position(normalized_choice, unoccupied) << 3);
             }
@@ -96,8 +96,11 @@ namespace bot {
             if (player_choice == 1) {
                 return 5;
             } else {
-                uint8_t building_num = ((player_choice - 1) / available) + 1;
-                uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
+                uint8_t building_num = ((player_choice - 2) / available) + 1;
+                uint16_t normalized_choice = ((player_choice - 2) % available) + 1;
+                if (building_num == 4 && !can_build_tesla_tower(player)) {
+                    std::cout << "shouldn't be building tesla tower 2" << std::endl;
+                }
                 return building_num |
                     (calculate_selected_position(normalized_choice, unoccupied) << 3);
             }
