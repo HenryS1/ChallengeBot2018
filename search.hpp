@@ -113,13 +113,13 @@ namespace bot {
     struct player_node {
         uint16_t number_of_choices = 0;
         uint32_t children = (uint32_t)-1;
-        uint32_t simulations = 1;
+        uint32_t simulations = 0;
         uint32_t wins = 0;
 
         player_node() {
             number_of_choices = 0;
             children = (uint32_t)-1;
-            simulations = 1;
+            simulations = 0;
             wins = 0;
         }
 
@@ -160,7 +160,7 @@ namespace bot {
     }
 
     inline float uct(uint16_t node_wins, uint16_t node_simulations, uint16_t total_simulations) {
-        return (float) node_wins / (float) node_simulations +
+        return ((float) node_wins / (float) node_simulations) +
             exploration * std::sqrt(std::log(total_simulations) / node_simulations);
     }
 
@@ -204,34 +204,38 @@ namespace bot {
                  uint8_t& a_reward,
                  uint8_t& b_reward,
                  player_node<N>& a_node,
-                 player_node<N>& b_node,
                  thread_state<N>& thread_state,
                  board_t& board,
                  uint16_t current_turn) {
-        if (a_node.number_of_choices == 0) {
-            new_node_count++;
-            construct_player_node(a_node, board.a);
+
+        uint16_t a_index = select_index(a_node.get_children(thread_state),
+                                        a_node.number_of_choices,
+                                        a_node.simulations);
+
+        assert(a_index < a_node.number_of_choices);
+
+        player_node<N>& b_node = a_node.get_children(thread_state)[a_index];
+
+        if (b_node.number_of_choices == 0) {
+
             construct_player_node(b_node, board.b);
 
-            uint16_t a_index = mt() % a_node.number_of_choices;
             uint16_t a_move = decode_move(a_index, board.a, a_node.number_of_choices);
 
             uint16_t b_index = mt() % b_node.number_of_choices;
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
-            a_reward = calculate_reward(board.b);
+            a_reward = calculate_reward(board.a);
 
             update_reward(a_node, a_reward);
+
+
+            b_reward = calculate_reward(board.b);
 
             update_reward(b_node, b_reward);
 
         } else {
-
-            uint16_t a_index = select_index(a_node.get_children(thread_state),
-                                            a_node.number_of_choices,
-                                            a_node.simulations);
-            assert(a_index < a_node.number_of_choices);
 
             uint16_t b_index = select_index(b_node.get_children(thread_state),
                                             b_node.number_of_choices,
@@ -243,11 +247,14 @@ namespace bot {
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
             advance_state(a_move, b_move, board.a, board.b, current_turn);
             assert(a_index >= 0 && a_index < a_node.number_of_choices);
+            player_node<N>& next_a_node = b_node.get_children(thread_state)[b_index];
+            if (next_a_node.number_of_choices == 0) {
+                construct_player_node(next_a_node, board.a);
+            }
             sm_mcts(mt,
                     a_reward,
                     b_reward,
-                    a_node.get_children(thread_state)[a_index],
-                    b_node.get_children(thread_state)[b_index],
+                    next_a_node,
                     thread_state,
                     board,
                     current_turn + 1);
@@ -287,13 +294,9 @@ namespace bot {
         std::uniform_real_distribution<float> uniform_distribution(0.0, 1.0);
         std::unique_ptr<thread_state<N>> memory(new thread_state<N>());
         uint32_t a_index = allocate_memory(*memory, sizeof(player_node<N>));
-        uint32_t b_index = allocate_memory(*memory, sizeof(player_node<N>));
         player_node<N>* a_root =
             static_cast<player_node<N>*>(get_buffer_by_index(*memory, a_index));
-        player_node<N>* b_root =
-            static_cast<player_node<N>*>(get_buffer_by_index(*memory, b_index));
         construct_player_node(*a_root, initial_board.a);
-        construct_player_node(*b_root, initial_board.b);
         uint8_t a_reward = 0.;
         uint8_t b_reward = 0.;
         bool done = true;
@@ -302,10 +305,10 @@ namespace bot {
             board_t board_copy;
             copy_board(initial_board, board_copy);
             sm_mcts(mt, a_reward,
-                    b_reward, *a_root, *b_root, *memory, board_copy, current_turn);
+                    b_reward, *a_root, *memory, board_copy, current_turn);
         }
         std::memcpy(choices, a_root->get_children(*memory),
-                    a_root->number_of_choices * sizeof(float));
+                    a_root->number_of_choices * sizeof(player_node<N>));
     }
 
     uint16_t read_board(board_t& board, std::string& state_path) {
@@ -391,30 +394,30 @@ namespace bot {
                              choices1,
                              current_turn);
 
-            // std::thread thr2(mcts_find_best_move<N>,
-            //                  std::ref(stop_search),
-            //                  board,
-            //                  choices2,
-            //                  current_turn);
+            std::thread thr2(mcts_find_best_move<N>,
+                             std::ref(stop_search),
+                             board,
+                             choices2,
+                             current_turn);
 
-            // std::thread thr3(mcts_find_best_move<N>,
-            //                  std::ref(stop_search),
-            //                  board,
-            //                  choices3,
-            //                  current_turn);
+            std::thread thr3(mcts_find_best_move<N>,
+                             std::ref(stop_search),
+                             board,
+                             choices3,
+                             current_turn);
 
-            // std::thread thr4(mcts_find_best_move<N>,
-            //                  std::ref(stop_search),
-            //                  board,
-            //                  choices4,
-            //                  current_turn);
+            std::thread thr4(mcts_find_best_move<N>,
+                             std::ref(stop_search),
+                             board,
+                             choices4,
+                             current_turn);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(1900));
             stop_search.store(true);
             thr1.join();
-            // thr2.join();
-            // thr3.join();
-            // thr4.join();
+            thr2.join();
+            thr3.join();
+            thr4.join();
 
 
             uint32_t total_simulations = 0;
@@ -423,20 +426,21 @@ namespace bot {
                             choices1,
                             number_of_choices,
                             total_simulations);
-            // combine_choices(&(aggregate_choices[0]),
-            //                 choices2,
-            //                 number_of_choices,
-            //                 total_simulations);
-            // combine_choices(&(aggregate_choices[0]),
-            //                 choices3,
-            //                 number_of_choices,
-            //                 total_simulations);
-            // combine_choices(&(aggregate_choices[0]),
-            //                 choices4,
-            //                 number_of_choices,
-            //                 total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices2,
+                            number_of_choices,
+                            total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices3,
+                            number_of_choices,
+                            total_simulations);
+            combine_choices(&(aggregate_choices[0]),
+                            choices4,
+                            number_of_choices,
+                            total_simulations);
 
             uint16_t number_of_choices = calculate_number_of_choices(board.a);
+
             uint16_t index_of_max_reward =
                 select_index(&(aggregate_choices[0]), number_of_choices, total_simulations);
             delete[] choices1;
