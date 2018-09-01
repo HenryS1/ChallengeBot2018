@@ -57,7 +57,7 @@ namespace bot {
             number_of_choices = available + 1;
         } else if (player.energy < 100 || (!player.iron_curtain_available
                                            && !can_build_tesla_tower(player))) {
-            number_of_choices = 1 + (available * 3);
+            number_of_choices = 20 + (available * 3);
         } else if (!player.iron_curtain_available) {
             number_of_choices = (available * 4) + 1;
         } else if (!can_build_tesla_tower(player)) {
@@ -86,6 +86,14 @@ namespace bot {
         } else if (number_of_choices == (available * 5) + 1) {
             uint8_t building_num = ((player_choice - 1) / available) + 1;
             uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
+            return building_num |
+                (calculate_selected_position(normalized_choice, unoccupied) << 3);
+        } else if (number_of_choices == 20 + (available * 3)) {
+            if (player_choice < 20) {
+                return 0;
+            }
+            uint8_t building_num = ((player_choice - 20) / available) + 1;
+            uint16_t normalized_choice = ((player_choice - 20) % available) + 1;
             return building_num |
                 (calculate_selected_position(normalized_choice, unoccupied) << 3);
         } else if (number_of_choices == (available * 4) + 2) {

@@ -655,7 +655,7 @@ namespace bot {
                                            && !can_build_tesla_tower(player))) {
             position = select_position(occupied, random_bits);
             uint8_t building_num = (((building_num_bits % 3) + 1) & -(energy_per_turn < 30))
-                | (2 & -(energy_per_turn > 29));
+                | (((building_num_bits & 1) + 1) & -(energy_per_turn > 29));
             return (building_num 
                     | (position << 3)) & -((selection_bits & 63) > 0);
         } else if (!player.iron_curtain_available) {
@@ -667,7 +667,7 @@ namespace bot {
             return (5 | (position << 3)) & -((selection_bits % 65) > 0);
         } else {
             position = select_position(occupied, random_bits);
-            return (((building_num_bits % 5) + 1) | (position << 3));
+            return (5 | (position << 3));
         }
     }
 
