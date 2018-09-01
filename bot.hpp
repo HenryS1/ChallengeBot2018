@@ -649,7 +649,7 @@ namespace bot {
             return 0;
         } else if (player.energy < 30) {
             position = select_position(occupied, position_bits);
-            return ((3 | (position << 3)) & (energy_per_turn < 30));
+            return 3 | (position << 3);
         } else if (player.energy < 100 || !player.iron_curtain_available) {
             position = select_position(occupied, random_bits);
             uint8_t building_num = (((building_num_bits & 1) + 2) & -(energy_per_turn < 30))
