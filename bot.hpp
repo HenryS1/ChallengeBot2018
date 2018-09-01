@@ -649,22 +649,13 @@ namespace bot {
             return 0;
         } else if (player.energy < 30) {
             position = select_position(occupied, position_bits);
-            return (3 | (position << 3)) & 
-                -(((building_num_bits & 63) > 0) & (energy_per_turn < 30));
-        } else if (player.energy < 100 || (!player.iron_curtain_available
-                                           && !can_build_tesla_tower(player))) {
+            return ((3 | (position << 3)) & (energy_per_turn < 30));
+        } else if (player.energy < 100 || !player.iron_curtain_available) {
             position = select_position(occupied, random_bits);
-            uint8_t building_num = (((building_num_bits % 3) + 1) & -(energy_per_turn < 30))
-                | (((building_num_bits & 1) + 1) & -(energy_per_turn > 29));
+            uint8_t building_num = (((building_num_bits & 1) + 2) & -(energy_per_turn < 30))
+                | (2 & -(energy_per_turn > 29));
             return (building_num 
                     | (position << 3)) & -((selection_bits & 63) > 0);
-        } else if (!player.iron_curtain_available) {
-            position = select_position(occupied, random_bits);
-            return (((building_num_bits % 4) + 1)
-                    | (position << 3)) & -((selection_bits % 65) > 0);
-        } else if (!can_build_tesla_tower(player)) {
-            position = select_position(occupied, random_bits);
-            return (5 | (position << 3)) & -((selection_bits % 65) > 0);
         } else {
             position = select_position(occupied, random_bits);
             return (5 | (position << 3));
@@ -764,7 +755,7 @@ namespace bot {
         uint16_t initial_turn = current_turn;
         advance_state(initial_a_move, initial_b_move, a, b, current_turn);
         current_turn++;
-        while (a.health > 0 && b.health > 0 && current_turn < initial_turn + 110) {
+        while (a.health > 0 && b.health > 0 && current_turn < initial_turn + 150) {
             uint16_t a_move = select_move(mt, a);
             uint16_t b_move = select_move(mt, b);
             advance_state(a_move, b_move, a, b, current_turn);
