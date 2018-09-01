@@ -58,7 +58,7 @@ namespace bot {
         } else if (player.energy < 100 || (!player.iron_curtain_available)) {
             number_of_choices = 1 + (available * 3);
         } else {
-            number_of_choices = (available * 4) + 2;
+            number_of_choices = (available * 4) + 1;
         } 
         return number_of_choices;
     }
@@ -74,27 +74,22 @@ namespace bot {
         uint8_t available = count_set_bits(unoccupied);
         uint8_t position = calculate_selected_position(player_choice, unoccupied);
         assert(position >= 0 && position < 64);
-        if (player_choice == 0) {
+        if (player_choice == 0 && (number_of_choices != (available * 4) + 1)) {
             return 0;
         } else if (number_of_choices == available + 1) {
             return 3 | (calculate_selected_position(player_choice, unoccupied) << 3);
-        } else if (number_of_choices == (available * 5) + 1) {
-            uint8_t building_num = ((player_choice - 1) / available) + 1;
-            uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
-            return building_num |
-                (calculate_selected_position(normalized_choice, unoccupied) << 3);
         } else if (number_of_choices == 1 + (available * 3)) {
             uint8_t building_num = ((player_choice - 1) / available) + 1;
             uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
             return building_num |
                 (calculate_selected_position(normalized_choice, unoccupied) << 3);
-        } else if (number_of_choices == (available * 4) + 2) {
-            if (player_choice == 1) {
+        } else if (number_of_choices == (available * 4) + 1) {
+            if (player_choice == 0) {
                 return 5;
             } else {
-                uint8_t building_num = ((player_choice - 2) / available) + 1;
+                uint8_t building_num = ((player_choice - 1) / available) + 1;
                 building_num = ((building_num + 1) & -(building_num == 4)) | (building_num & -(building_num < 4));
-                uint16_t normalized_choice = ((player_choice - 2) % available) + 1;
+                uint16_t normalized_choice = ((player_choice - 1) % available) + 1;
                 return building_num |
                     (calculate_selected_position(normalized_choice, unoccupied) << 3);
             }
