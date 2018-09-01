@@ -632,6 +632,10 @@ namespace bot {
         return m == 3 ? 0 : m;
     }
 
+    inline bool can_build_tesla_tower(player_t& player) {
+        return (player.energy > 99) && !(player.tesla_towers[1]);
+    }
+
     inline uint16_t select_move(std::mt19937& mt,
                                 player_t& player) {
         uint64_t occupied = find_occupied(player);
@@ -640,18 +644,28 @@ namespace bot {
         uint32_t random_bits = mt();
         uint8_t building_num_bits = random_bits >> 8;
         uint8_t position_bits = random_bits & 255;
+        uint8_t selection_bits = random_bits >> 16;
         if (occupied == max_u_int_64 || player.energy < 20) {
             return 0;
         } else if (player.energy < 30) {
-              position = select_position(occupied, position_bits);
+            position = select_position(occupied, position_bits);
             return (3 | (position << 3)) & 
                 -(((building_num_bits & 63) > 0) & (energy_per_turn < 30));
-        } else if (player.energy < 100) {
+        } else if (player.energy < 100 || (!player.iron_curtain_available
+                                           && !can_build_tesla_tower(player))) {
             position = select_position(occupied, random_bits);
-            return (((mt() % 3) + 1) | (position << 3)) & -(mt() % 64 > 0);
+            return (((building_num_bits % 3) + 1) 
+                    | (position << 3)) & -((selection_bits & 63) > 0);
         } else if (!player.iron_curtain_available) {
             position = select_position(occupied, random_bits);
-            return (((building_num_bits % 4) + 1) | (position << 3)) & -(mt() % 64 > 0);
+            return (((building_num_bits % 4) + 1)
+                    | (position << 3)) & -((selection_bits % 65) > 0);
+        } else if (!can_build_tesla_tower(player)) {
+            position = select_position(occupied, random_bits);
+            uint8_t building_num = ((building_num_bits % 4) + 1);
+            building_num = ((building_num + 1) & -(building_num == 4)) 
+                | (building_num & -(building_num < 4));
+            return (building_num | (position << 3)) & -((selection_bits % 65) > 0);
         } else {
             position = select_position(occupied, random_bits);
             return (((building_num_bits % 5) + 1) | (position << 3));
@@ -706,10 +720,6 @@ namespace bot {
             collide_tesla_shots(attacked_b, b);
             collide_tesla_shots(attacked_a, a);
         }
-    }
-
-    inline bool can_build_tesla_tower(player_t& player) {
-        return (player.energy > 99) && !(player.tesla_towers[1]);
     }
 
     inline void decrement_turns_protected(player_t& player) {
