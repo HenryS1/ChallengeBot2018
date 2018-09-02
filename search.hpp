@@ -18,7 +18,7 @@ namespace bot {
     template <uint32_t N>
     struct thread_state {
         uint8_t buffer_index = 0;
-        uint8_t buffer[8][N];
+        uint8_t buffer[2][N];
         float distribution[203041] = {0};
         uint32_t free_index = 0;
         thread_state() {
@@ -26,11 +26,9 @@ namespace bot {
         }
     };
 
-    thread_state<total_free_bytes>* global_tree_buffer = nullptr;
-
     template <uint32_t N>
     uint32_t allocate_memory(thread_state<N>& thread_state, uint32_t bytes) {
-        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 7) {
+        if (bytes + thread_state.free_index >= N && thread_state.buffer_index < 1) {
             thread_state.buffer_index++;
             thread_state.free_index = 0;
         }

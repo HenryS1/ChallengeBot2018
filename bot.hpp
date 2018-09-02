@@ -439,15 +439,17 @@ namespace bot {
         building_positions_t intersection = enemy_missiles & player.energy_buildings;
         player.energy_buildings ^= intersection;
         enemy_missiles ^= intersection;
+        uint64_t enemy_missiles_1 = enemy_missiles;
         for (uint8_t i = 0; i < 4; i++) {
-            intersection = enemy_missiles & player.attack_buildings[i];
+            uint64_t intersection = enemy_missiles_1 & player.attack_buildings[i];
             player.attack_buildings[i] ^= intersection;
-            enemy_missiles ^= intersection;
+            enemy_missiles_1 ^= intersection;
         }
+        uint64_t enemy_missiles_2 = enemy_missiles;
         for (uint8_t i = 0; i < 4; i++) {
-            intersection = player.defence_buildings[i] & enemy_missiles;
+            uint64_t intersection = player.defence_buildings[i] & enemy_missiles_2;
             player.defence_buildings[i] ^= intersection;
-            enemy_missiles ^= intersection;
+            enemy_missiles_2 ^= intersection;
         }
         if (player.tesla_towers[0]) {
             uint64_t tesla_tower1 = player.tesla_towers[0];
@@ -463,7 +465,8 @@ namespace bot {
             player.tesla_towers[0] = (-(tesla_tower1 == 0) & tesla_tower2) | tesla_tower1;
             player.tesla_towers[1] = (-(tesla_tower1 > 0) & tesla_tower2);
         }
-        enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles;
+        enemy.enemy_half_missiles[missiles_offset] &= enemy_missiles & enemy_missiles_1
+            & enemy_missiles_2;
     }
 
     inline void collide_missiles(player_t& player, player_t& enemy) {
@@ -474,12 +477,7 @@ namespace bot {
     }
 
     inline uint8_t count_set_bits(uint64_t n) {
-        n -= (n >> 1) & 0x5555555555555555;
-        n = (n & 0x3333333333333333) + ((n >> 2) & 0x3333333333333333);
-        n = (n + (n >> 4)) & 0x0F0F0F0F0F0F0F0F;
-        n += n >> 8;
-        n += n >> 16;
-        return (n + (n >> 32)) & 0x7F;
+        return __builtin_popcount(n) + __builtin_popcount(n >> 32);
     }
 
     inline uint64_t max_zero(uint64_t a) {
