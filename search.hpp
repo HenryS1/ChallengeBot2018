@@ -161,8 +161,10 @@ namespace bot {
         return new (&node) player_node<N>(player);
     }
 
-    uint8_t calculate_reward(player_t& other) {
-        if (other.health <= 0) return 1;
+    uint8_t calculate_reward(player_t& self, player_t& other) {
+        if ((other.health <= 0) || 
+            (count_set_bits(other.energy_buildings) < count_set_bits(self.energy_buildings)))
+            return 1;
         else return 0;
     }
 
@@ -218,11 +220,11 @@ namespace bot {
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
-            a_reward = calculate_reward(board.a);
+            a_reward = calculate_reward(board.b, board.a);
 
             update_reward(a_node, a_reward);
 
-            b_reward = calculate_reward(board.b);
+            b_reward = calculate_reward(board.a, board.b);
 
             update_reward(b_node, b_reward);
 
