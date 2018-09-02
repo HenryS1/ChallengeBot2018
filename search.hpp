@@ -125,7 +125,7 @@ namespace bot {
                 player_node<N>* result =
                     static_cast<player_node<N>*>(get_buffer_by_index(thread_state, children));
                 for (auto node = result; node != result + number_of_choices; ++node) {
-                    new (node) player_node();
+                    node->number_of_choices = 0;
                     // node->number_of_choices = 0;
                     // node->simulations = 0;
                     // node->wins = 0;
@@ -162,8 +162,7 @@ namespace bot {
     }
 
     uint8_t calculate_reward(player_t& self, player_t& other) {
-        if ((other.health <= 0) || 
-            (count_set_bits(other.energy_buildings) < count_set_bits(self.energy_buildings)))
+        if ((other.health <= 0))
             return 1;
         else return 0;
     }
