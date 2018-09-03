@@ -159,8 +159,32 @@ namespace bot {
         return new (&node) player_node<N>(player);
     }
 
+    inline uint8_t count_attack_buildings(player_t& player) {
+        uint64_t all_attack_buildings = 0;
+        for (uint64_t* buildings = player.attack_buildings;
+             buildings != player.attack_buildings + 4; buildings++) {
+            all_attack_buildings |= *buildings;
+        }
+        return count_set_bits(all_attack_buildings);
+    }
+
+    inline uint8_t count_defence_buildings(player_t& player) {
+        uint64_t all_defence_buildings = 0;
+        for (uint64_t* buildings = player.defence_buildings;
+             buildings != player.defence_buildings + 4; buildings++) {
+            all_defence_buildings |= *buildings;
+        }
+        return count_set_bits(all_defence_buildings);
+    }
+
+    inline uint16_t board_score(player_t& player) {
+        return count_defence_buildings(player) +
+            2 * count_set_bits(player.energy_buildings) + 
+            3 * count_attack_buildings(player); 
+    }
+
     uint8_t calculate_reward(player_t& self, player_t& other) {
-        if ((other.health <= 0))
+        if ((other.health <= 0) && (board_score(self) > board_score(other)))
             return 1;
         else return 0;
     }
