@@ -4,9 +4,6 @@ GTEST=-I/usr/local/include/gtest/
 	test 
 
 default:
-	g++ bot.cpp -Wall -std=c++11 -lpthread -O3 -o bot.exe 
-
-tree_search:
 	g++ search.cpp -Wall -std=c++11 -lpthread -O3 -o bot.exe
 
 test: 
