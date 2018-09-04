@@ -178,7 +178,8 @@ namespace bot {
     }
 
     inline uint16_t board_score(player_t& player) {
-        return count_defence_buildings(player) +
+        return 10 * (player.health > 10) +
+            count_defence_buildings(player) +
             2 * count_set_bits(player.energy_buildings) + 
             3 * count_attack_buildings(player); 
     }
