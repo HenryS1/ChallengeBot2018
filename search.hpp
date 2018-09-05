@@ -145,8 +145,8 @@ namespace bot {
         // player_node<N>* selected_node = node.get_children(thread_state) + selection;
         // selected_node->wins += won;
         // selected_node->simulations++;
-        node.wins += won;
-        node.simulations++;
+        node.wins += (won == 1);
+        node.simulations += (won < 10);
     }
 
     inline float uct(uint16_t node_wins, uint16_t node_simulations, uint16_t total_simulations) {
@@ -185,9 +185,9 @@ namespace bot {
     }
 
     uint8_t calculate_reward(player_t& self, player_t& other) {
-        if (((other.health <= 0) || (self.health > 30))
-            && (board_score(self) > board_score(other)))
+        if ((other.health <= 0) && (board_score(self) > board_score(other)))
             return 1;
+        else if (self.health > 0) return 11;
         else return 0;
     }
 
