@@ -181,13 +181,12 @@ namespace bot {
         return 10 * (player.health > 10) +
             count_defence_buildings(player) +
             2 * count_set_bits(player.energy_buildings) + 
-            3 * count_attack_buildings(player); 
+            10 * count_attack_buildings(player); 
     }
 
-    uint8_t calculate_reward(player_t& self, player_t& other) {
-        if ((other.health <= 0) && (board_score(self) > board_score(other)))
+    uint8_t calculate_reward(player_t& self, player_t& other, uint8_t initial_health) {
+        if (((other.health <= 0) || (initial_health > 30)) && (board_score(self) > board_score(other)))
             return 1;
-        else if (self.health > 0) return 11;
         else return 0;
     }
 
@@ -236,6 +235,8 @@ namespace bot {
         if (b_node.number_of_choices == 0) {
 
             construct_player_node(b_node, board.b);
+            uint8_t a_initial_health = board.a.health;
+            uint8_t b_initial_health = board.b.health;
 
             uint16_t a_move = decode_move(a_index, board.a, a_node.number_of_choices);
 
@@ -243,11 +244,11 @@ namespace bot {
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
             simulate(mt, board.a, board.b, a_move, b_move, current_turn);
-            a_reward = calculate_reward(board.b, board.a);
+            a_reward = calculate_reward(board.b, board.a, a_initial_health);
 
             update_reward(a_node, a_reward);
 
-            b_reward = calculate_reward(board.a, board.b);
+            b_reward = calculate_reward(board.a, board.b, b_initial_health);
 
             update_reward(b_node, b_reward);
 
