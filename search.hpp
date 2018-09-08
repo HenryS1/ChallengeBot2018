@@ -179,14 +179,23 @@ namespace bot {
 
     inline uint16_t board_score(player_t& player) {
         return 
-            2 * count_defence_buildings(player) +
             count_set_bits(player.energy_buildings) + 
-            10 * count_attack_buildings(player); 
+            4 * count_attack_buildings(player); 
     }
 
-    uint8_t calculate_reward(player_t& self, player_t& other, uint8_t initial_health) {
-        if (((other.health <= 0) && (initial_health < 31))
-            || ((initial_health > 30) && (board_score(self) > board_score(other))))
+    inline bool good_board_state(player_t& self, player_t& other,
+                                 uint16_t current_turn) {
+        for (uint8_t i = 0; i < 10; i++) {
+            advance_state(0, 0, self, other, current_turn++);
+        }
+        return board_score(self) > board_score(other);
+    }
+
+    uint8_t calculate_reward(player_t& self, player_t& other, 
+                             uint8_t initial_health,
+                             uint16_t current_turn) {
+        if (((other.health <= 0) && (initial_health < 31) && board_score(self) > board_score(other))
+            || ((initial_health > 30) && good_board_state(self, other, current_turn)))
             return 1;
         else return 0;
     }
