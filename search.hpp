@@ -185,7 +185,8 @@ namespace bot {
     }
 
     uint8_t calculate_reward(player_t& self, player_t& other, uint8_t initial_health) {
-        if (((other.health <= 0) || (initial_health > 30)) && (board_score(self) > board_score(other)))
+        if (((other.health <= 0) && (initial_health < 31))
+            || ((initial_health > 30) && (board_score(self) > board_score(other))))
             return 1;
         else return 0;
     }
