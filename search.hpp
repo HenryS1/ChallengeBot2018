@@ -185,7 +185,7 @@ namespace bot {
 
     inline bool good_board_state(player_t& self, player_t& other,
                                  uint16_t current_turn) {
-        for (uint8_t i = 0; i < 5; i++) {
+        for (uint8_t i = 0; i < 10; i++) {
             advance_state(0, 0, self, other, current_turn++);
         }
         return board_score(self) > board_score(other);
