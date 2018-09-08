@@ -185,7 +185,7 @@ namespace bot {
 
     inline bool good_board_state(player_t& self, player_t& other,
                                  uint16_t current_turn) {
-        for (uint8_t i = 0; i < 10; i++) {
+        for (uint8_t i = 0; i < 5; i++) {
             advance_state(0, 0, self, other, current_turn++);
         }
         return board_score(self) > board_score(other);
@@ -253,12 +253,12 @@ namespace bot {
             uint16_t b_index = mt() % b_node.number_of_choices;
             uint16_t b_move = decode_move(b_index, board.b, b_node.number_of_choices);
 
-            simulate(mt, board.a, board.b, a_move, b_move, current_turn);
-            a_reward = calculate_reward(board.b, board.a, a_initial_health);
+            uint16_t final_turn = simulate(mt, board.a, board.b, a_move, b_move, current_turn);
+            a_reward = calculate_reward(board.b, board.a, a_initial_health, final_turn);
 
             update_reward(a_node, a_reward);
 
-            b_reward = calculate_reward(board.a, board.b, b_initial_health);
+            b_reward = calculate_reward(board.a, board.b, b_initial_health, final_turn);
 
             update_reward(b_node, b_reward);
 
